@@ -1,0 +1,141 @@
+/**
+ * WP Cron v2 Admin CSS
+ */
+
+.wp-cron-v2-admin {
+    max-width: 1200px;
+}
+
+/* Tilastokortit */
+.wp-cron-v2-stats {
+    display: flex;
+    gap: 20px;
+    margin: 20px 0;
+}
+
+.stat-card {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    padding: 20px 30px;
+    text-align: center;
+    min-width: 120px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.stat-card .stat-number {
+    display: block;
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.stat-card .stat-label {
+    display: block;
+    font-size: 13px;
+    color: #646970;
+    margin-top: 5px;
+}
+
+.stat-queued .stat-number { color: #2271b1; }
+.stat-running .stat-number { color: #dba617; }
+.stat-completed .stat-number { color: #00a32a; }
+.stat-failed .stat-number { color: #d63638; }
+
+/* Suodattimet */
+.wp-cron-v2-filters {
+    margin: 20px 0;
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+}
+
+.wp-cron-v2-filters select {
+    margin-right: 10px;
+}
+
+/* Status badge */
+.status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-queued {
+    background: #e5f5fa;
+    color: #2271b1;
+}
+
+.status-running {
+    background: #fcf0c3;
+    color: #996800;
+}
+
+.status-completed {
+    background: #d7f4e1;
+    color: #006908;
+}
+
+.status-failed {
+    background: #facfd2;
+    color: #8a1e22;
+}
+
+/* Priority badge */
+.priority-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.priority-high {
+    background: #d63638;
+    color: #fff;
+}
+
+.priority-normal {
+    background: #646970;
+    color: #fff;
+}
+
+.priority-low {
+    background: #c3c4c7;
+    color: #1d2327;
+}
+
+/* Error message */
+.error-message {
+    color: #d63638;
+    font-style: italic;
+}
+
+/* Taulukko */
+.wp-cron-v2-admin .wp-list-table {
+    margin-top: 20px;
+}
+
+.wp-cron-v2-admin .wp-list-table td {
+    vertical-align: middle;
+}
+
+/* Painikkeet */
+.wp-cron-v2-admin .button-small {
+    margin-right: 5px;
+}
+
+/* Loading state */
+.wp-cron-v2-admin tr.loading {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Fade out poistetuille */
+.wp-cron-v2-admin tr.removed {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}

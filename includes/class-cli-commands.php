@@ -264,6 +264,235 @@ class CLI_Commands extends WP_CLI_Command {
 
         WP_CLI::success( "Palautettu {$count} jobia jonoon uudelleenyritystä varten." );
     }
+
+    /**
+     * Listaa jobit jonossa
+     *
+     * ## OPTIONS
+     *
+     * [--queue=<queue>]
+     * : Jonon nimi (tyhjä = kaikki)
+     *
+     * [--status=<status>]
+     * : Suodata statuksen mukaan (queued, running, completed, failed)
+     *
+     * [--limit=<number>]
+     * : Näytettävien jobien määrä
+     * ---
+     * default: 20
+     * ---
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     *   - csv
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 list
+     *     wp cron-v2 list --status=failed
+     *     wp cron-v2 list --queue=emails --limit=50
+     *
+     * @subcommand list
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function list_jobs( $args, $assoc_args ) {
+        global $wpdb;
+
+        $queue = $assoc_args['queue'] ?? null;
+        $status = $assoc_args['status'] ?? null;
+        $limit = (int) ( $assoc_args['limit'] ?? 20 );
+        $format = $assoc_args['format'] ?? 'table';
+        $table = $wpdb->prefix . 'job_queue';
+
+        $where = '1=1';
+
+        if ( $queue ) {
+            $where .= $wpdb->prepare( ' AND queue = %s', $queue );
+        }
+
+        if ( $status ) {
+            $where .= $wpdb->prepare( ' AND status = %s', $status );
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $jobs = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, job_type, queue, priority, status, attempts, max_attempts, created_at, error_message
+                FROM {$table}
+                WHERE {$where}
+                ORDER BY created_at DESC
+                LIMIT %d",
+                $limit
+            ),
+            ARRAY_A
+        );
+
+        if ( empty( $jobs ) ) {
+            WP_CLI::log( 'Ei jobeja.' );
+            return;
+        }
+
+        // Lyhennä job_type näyttöä varten
+        foreach ( $jobs as &$job ) {
+            $parts = explode( '\\', $job['job_type'] );
+            $job['job_type'] = end( $parts );
+            $job['error_message'] = $job['error_message'] ? substr( $job['error_message'], 0, 40 ) . '...' : '';
+        }
+
+        WP_CLI\Utils\format_items( $format, $jobs, [ 'id', 'job_type', 'queue', 'priority', 'status', 'attempts', 'created_at', 'error_message' ] );
+    }
+
+    /**
+     * Poista valmiit jobit
+     *
+     * ## OPTIONS
+     *
+     * [--queue=<queue>]
+     * : Jonon nimi (tyhjä = kaikki)
+     *
+     * [--older-than=<days>]
+     * : Poista vain tätä vanhemmat (päivinä)
+     * ---
+     * default: 0
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 purge-completed
+     *     wp cron-v2 purge-completed --older-than=7
+     *
+     * @subcommand purge-completed
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function purge_completed( $args, $assoc_args ) {
+        global $wpdb;
+
+        $queue = $assoc_args['queue'] ?? null;
+        $older_than = (int) ( $assoc_args['older-than'] ?? 0 );
+        $table = $wpdb->prefix . 'job_queue';
+
+        $where = "status = 'completed'";
+
+        if ( $queue ) {
+            $where .= $wpdb->prepare( ' AND queue = %s', $queue );
+        }
+
+        if ( $older_than > 0 ) {
+            $date = gmdate( 'Y-m-d H:i:s', strtotime( "-{$older_than} days" ) );
+            $where .= $wpdb->prepare( ' AND updated_at < %s', $date );
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $count = $wpdb->query( "DELETE FROM {$table} WHERE {$where}" );
+
+        WP_CLI::success( "Poistettu {$count} valmista jobia." );
+    }
+
+    /**
+     * Näytä yksittäisen jobin tiedot
+     *
+     * ## OPTIONS
+     *
+     * <id>
+     * : Jobin ID
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     *   - yaml
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 show 123
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function show( $args, $assoc_args ) {
+        global $wpdb;
+
+        $id = (int) $args[0];
+        $format = $assoc_args['format'] ?? 'table';
+        $table = $wpdb->prefix . 'job_queue';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $job = $wpdb->get_row(
+            $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ),
+            ARRAY_A
+        );
+
+        if ( ! $job ) {
+            WP_CLI::error( "Jobia ID {$id} ei löydy." );
+        }
+
+        if ( $format === 'table' ) {
+            $data = [];
+            foreach ( $job as $key => $value ) {
+                $data[] = [ 'field' => $key, 'value' => $value ];
+            }
+            WP_CLI\Utils\format_items( 'table', $data, [ 'field', 'value' ] );
+        } else {
+            WP_CLI\Utils\format_items( $format, [ $job ], array_keys( $job ) );
+        }
+    }
+
+    /**
+     * Peruuta job jonosta
+     *
+     * ## OPTIONS
+     *
+     * <id>...
+     * : Jobin ID(t)
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 cancel 123
+     *     wp cron-v2 cancel 123 124 125
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function cancel( $args, $assoc_args ) {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'job_queue';
+        $cancelled = 0;
+
+        foreach ( $args as $id ) {
+            $id = (int) $id;
+
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $result = $wpdb->delete(
+                $table,
+                [
+                    'id' => $id,
+                    'status' => 'queued'
+                ]
+            );
+
+            if ( $result ) {
+                $cancelled++;
+                WP_CLI::log( "Job {$id} peruutettu." );
+            } else {
+                WP_CLI::warning( "Job {$id} ei voitu peruuttaa (ei jonossa tai ei löydy)." );
+            }
+        }
+
+        WP_CLI::success( "Peruutettu {$cancelled} jobia." );
+    }
 }
 
 // Rekisteröi komennot

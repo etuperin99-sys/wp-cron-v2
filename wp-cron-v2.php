@@ -73,6 +73,15 @@ function wp_cron_v2() {
 }
 
 /**
+ * Pääsy WP-Cron adapteriin
+ *
+ * @return WPCronV2\Adapter\WPCronAdapter
+ */
+function wp_cron_v2_adapter() {
+    return WPCronV2\Adapter\WPCronAdapter::get_instance();
+}
+
+/**
  * Alusta plugin
  */
 add_action( 'plugins_loaded', function() {
@@ -81,6 +90,17 @@ add_action( 'plugins_loaded', function() {
 
     // Alusta Queue Manager
     wp_cron_v2();
+
+    // Ota WP-Cron adapter käyttöön jos asetus on päällä
+    $settings = get_option( 'wp_cron_v2_settings', [] );
+    if ( ! empty( $settings['enable_wp_cron_adapter'] ) ) {
+        wp_cron_v2_adapter()->enable();
+    }
+
+    // Admin UI
+    if ( is_admin() ) {
+        WPCronV2\Admin\AdminPage::get_instance();
+    }
 });
 
 /**
