@@ -7,6 +7,9 @@
 
 namespace WPCronV2\Queue;
 
+use WPCronV2\Queue\Drivers\DriverInterface;
+use WPCronV2\Queue\Drivers\DriverFactory;
+
 class Manager {
 
     /**
@@ -31,6 +34,13 @@ class Manager {
     private string $priority = 'normal';
 
     /**
+     * Queue driver
+     *
+     * @var DriverInterface
+     */
+    private DriverInterface $driver;
+
+    /**
      * Hae singleton instanssi
      *
      * @return Manager
@@ -46,7 +56,29 @@ class Manager {
      * Konstruktori
      */
     private function __construct() {
+        $this->driver = DriverFactory::create();
         $this->init_hooks();
+    }
+
+    /**
+     * Hae aktiivinen driver
+     *
+     * @return DriverInterface
+     */
+    public function getDriver(): DriverInterface {
+        return $this->driver;
+    }
+
+    /**
+     * Vaihda driver
+     *
+     * @param string $driver Driver tyyppi
+     * @param array $config Asetukset
+     * @return Manager
+     */
+    public function setDriver( string $driver, array $config = [] ): Manager {
+        $this->driver = DriverFactory::create( $driver, $config );
+        return $this;
     }
 
     /**
@@ -150,15 +182,13 @@ class Manager {
     }
 
     /**
-     * Lisää job tietokantajonoon
+     * Lisää job jonoon
      *
      * @param Jobs\Job $job Job-instanssi
      * @param int $delay Viive sekunteina
      * @return int|false
      */
     private function push_to_queue( $job, int $delay = 0 ) {
-        global $wpdb;
-
         // Tarkista unique constraint
         if ( ! empty( $job->unique_key ) ) {
             if ( $this->is_unique_locked( $job->unique_key ) ) {
@@ -177,35 +207,33 @@ class Manager {
             $this->set_unique_lock( $job->unique_key, $lock_time );
         }
 
-        $table = $wpdb->prefix . 'job_queue';
         $now = current_time( 'mysql', true );
 
         $available_at = $delay > 0
             ? gmdate( 'Y-m-d H:i:s', time() + $delay )
             : $now;
 
-        $data = [
+        // Redis-driver käyttää timestampeja
+        $available_at_value = $delay > 0 ? time() + $delay : $available_at;
+
+        $job_data = [
             'job_type'     => get_class( $job ),
             'payload'      => maybe_serialize( $job ),
             'queue'        => $this->current_queue,
             'priority'     => $this->priority,
-            'attempts'     => 0,
             'max_attempts' => $job->max_attempts ?? 3,
-            'available_at' => $available_at,
-            'created_at'   => $now,
-            'updated_at'   => $now,
-            'status'       => 'queued',
+            'available_at' => $available_at_value,
         ];
 
-        $result = $wpdb->insert( $table, $data );
+        $job_id = $this->driver->push( $job_data );
 
         // Resetoi arvot
         $this->current_queue = 'default';
         $this->priority = 'normal';
 
-        if ( $result ) {
-            do_action( 'wp_cron_v2_job_queued', $wpdb->insert_id, $job );
-            return $wpdb->insert_id;
+        if ( $job_id ) {
+            do_action( 'wp_cron_v2_job_queued', $job_id, $job );
+            return $job_id;
         }
 
         // Jos insert epäonnistui, vapauta unique lock
@@ -263,45 +291,11 @@ class Manager {
      * @return bool
      */
     public function process_next_job( string $queue = 'default' ): bool {
-        global $wpdb;
-
-        $table = $wpdb->prefix . 'job_queue';
-        $now = current_time( 'mysql', true );
-
-        // Hae seuraava käsiteltävä job (prioriteetin mukaan)
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        $job_row = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT * FROM {$table}
-                WHERE queue = %s
-                AND status = 'queued'
-                AND available_at <= %s
-                ORDER BY FIELD(priority, 'high', 'normal', 'low'), created_at ASC
-                LIMIT 1",
-                $queue,
-                $now
-            )
-        );
+        // Hae ja lukitse seuraava job
+        $job_row = $this->driver->pop( $queue );
 
         if ( ! $job_row ) {
             return false;
-        }
-
-        // Lukitse job
-        $locked = $wpdb->update(
-            $table,
-            [
-                'status' => 'running',
-                'updated_at' => $now
-            ],
-            [
-                'id' => $job_row->id,
-                'status' => 'queued'
-            ]
-        );
-
-        if ( ! $locked ) {
-            return false; // Toinen prosessi ehti ensin
         }
 
         // Suorita job
@@ -321,15 +315,7 @@ class Manager {
                     $job->rate_limit['per'] ?? 60
                 );
 
-                $wpdb->update(
-                    $table,
-                    [
-                        'status'       => 'queued',
-                        'available_at' => gmdate( 'Y-m-d H:i:s', time() + max( 1, $delay ) ),
-                        'updated_at'   => current_time( 'mysql', true ),
-                    ],
-                    [ 'id' => $job_row->id ]
-                );
+                $this->driver->release( $job_row->id, max( 1, $delay ), (int) $job_row->attempts );
 
                 do_action( 'wp_cron_v2_job_rate_limited', $job_row->id, $job, $delay );
                 return false;
@@ -338,14 +324,7 @@ class Manager {
             $job->handle();
 
             // Merkitse valmiiksi
-            $wpdb->update(
-                $table,
-                [
-                    'status' => 'completed',
-                    'updated_at' => current_time( 'mysql', true )
-                ],
-                [ 'id' => $job_row->id ]
-            );
+            $this->driver->complete( $job_row->id );
 
             // Vapauta unique lock jos asetettu
             if ( ! empty( $job->unique_key ) ) {
@@ -364,16 +343,7 @@ class Manager {
 
             if ( $attempts >= $max_attempts ) {
                 // Lopullinen epäonnistuminen
-                $wpdb->update(
-                    $table,
-                    [
-                        'status' => 'failed',
-                        'attempts' => $attempts,
-                        'error_message' => $e->getMessage(),
-                        'updated_at' => current_time( 'mysql', true )
-                    ],
-                    [ 'id' => $job_row->id ]
-                );
+                $this->driver->fail( $job_row->id, $e->getMessage(), $attempts, true );
 
                 // Vapauta unique lock jos asetettu
                 if ( is_object( $job ) && ! empty( $job->unique_key ) ) {
@@ -384,19 +354,8 @@ class Manager {
             } else {
                 // Yritä uudelleen (exponential backoff)
                 $backoff = pow( 2, $attempts ) * 60; // 2min, 4min, 8min...
-                $next_attempt = gmdate( 'Y-m-d H:i:s', time() + $backoff );
 
-                $wpdb->update(
-                    $table,
-                    [
-                        'status' => 'queued',
-                        'attempts' => $attempts,
-                        'available_at' => $next_attempt,
-                        'error_message' => $e->getMessage(),
-                        'updated_at' => current_time( 'mysql', true )
-                    ],
-                    [ 'id' => $job_row->id ]
-                );
+                $this->driver->release( $job_row->id, $backoff, $attempts, $e->getMessage() );
 
                 do_action( 'wp_cron_v2_job_retrying', $job_row->id, $attempts, $e );
             }
@@ -415,93 +374,39 @@ class Manager {
      * @return int Vapautettujen jobien määrä
      */
     public function release_stale_jobs( int $timeout_minutes = 30 ): int {
-        global $wpdb;
-
-        $table = $wpdb->prefix . 'job_queue';
-        $cutoff = gmdate( 'Y-m-d H:i:s', time() - ( $timeout_minutes * 60 ) );
-
-        // Hae jumittuneet jobit
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        $stale_jobs = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT * FROM {$table}
-                WHERE status = 'running'
-                AND updated_at < %s",
-                $cutoff
-            )
-        );
-
-        $released = 0;
-
-        foreach ( $stale_jobs as $job_row ) {
-            $attempts = (int) $job_row->attempts + 1;
-            $max_attempts = (int) $job_row->max_attempts;
-
-            if ( $attempts >= $max_attempts ) {
-                // Merkitse epäonnistuneeksi
-                $wpdb->update(
-                    $table,
-                    [
-                        'status' => 'failed',
-                        'attempts' => $attempts,
-                        'error_message' => 'Job timeout - exceeded ' . $timeout_minutes . ' minutes',
-                        'updated_at' => current_time( 'mysql', true )
-                    ],
-                    [ 'id' => $job_row->id ]
-                );
-
-                do_action( 'wp_cron_v2_job_timeout', $job_row->id, 'failed' );
-            } else {
-                // Palauta jonoon retry-logiikalla
-                $backoff = pow( 2, $attempts ) * 60;
-                $next_attempt = gmdate( 'Y-m-d H:i:s', time() + $backoff );
-
-                $wpdb->update(
-                    $table,
-                    [
-                        'status' => 'queued',
-                        'attempts' => $attempts,
-                        'available_at' => $next_attempt,
-                        'error_message' => 'Job timeout - will retry',
-                        'updated_at' => current_time( 'mysql', true )
-                    ],
-                    [ 'id' => $job_row->id ]
-                );
-
-                do_action( 'wp_cron_v2_job_timeout', $job_row->id, 'retrying' );
-            }
-
-            $released++;
-        }
-
-        return $released;
+        return $this->driver->releaseStale( $timeout_minutes );
     }
 
     /**
      * Siivoa vanhat valmiit jobit
      *
      * @param int $days_old Poista tätä vanhemmat (päivinä)
+     * @param bool $include_failed Sisällytä epäonnistuneet
      * @return int Poistettujen määrä
      */
-    public function cleanup_old_jobs( int $days_old = 7 ): int {
-        global $wpdb;
+    public function cleanup_old_jobs( int $days_old = 7, bool $include_failed = false ): int {
+        return $this->driver->cleanup( $days_old, $include_failed );
+    }
 
-        $table = $wpdb->prefix . 'job_queue';
-        $cutoff = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days_old} days" ) );
+    /**
+     * Poista epäonnistuneet jobit
+     *
+     * @param int|null $older_than_days Poista vanhemmat kuin X päivää (null = kaikki)
+     * @return int Poistettujen määrä
+     */
+    public function flush_failed( ?int $older_than_days = null ): int {
+        return $this->driver->flushFailed( $older_than_days );
+    }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        $deleted = $wpdb->query(
-            $wpdb->prepare(
-                "DELETE FROM {$table}
-                WHERE status = 'completed'
-                AND updated_at < %s",
-                $cutoff
-            )
-        );
-
-        do_action( 'wp_cron_v2_jobs_cleaned', $deleted );
-
-        return (int) $deleted;
+    /**
+     * Yritä epäonnistuneet jobit uudelleen
+     *
+     * @param string|null $queue Jonon nimi (null = kaikki)
+     * @param int|null $limit Maksimimäärä
+     * @return int Uudelleenyritettyjen määrä
+     */
+    public function retry_failed( ?string $queue = null, ?int $limit = null ): int {
+        return $this->driver->retryFailed( $queue, $limit );
     }
 
     /**
@@ -517,23 +422,20 @@ class Manager {
         $failed_table = $wpdb->prefix . 'job_queue_failed';
 
         // Hae job
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        $job = $wpdb->get_row(
-            $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d AND status = 'failed'", $job_id )
-        );
+        $job = $this->driver->find( $job_id );
 
-        if ( ! $job ) {
+        if ( ! $job || $job->status !== 'failed' ) {
             return false;
         }
 
-        // Lisää historiaan
+        // Lisää historiaan (vain database-driverille)
         $wpdb->insert(
             $failed_table,
             [
-                'job_type' => $job->job_type,
-                'payload' => $job->payload,
-                'queue' => $job->queue,
-                'exception' => $job->error_message,
+                'job_type'  => $job->job_type,
+                'payload'   => $job->payload,
+                'queue'     => $job->queue,
+                'exception' => $job->error_message ?? '',
                 'failed_at' => current_time( 'mysql', true ),
             ]
         );
@@ -547,38 +449,58 @@ class Manager {
     /**
      * Hae jonon tilastot
      *
-     * @param string $queue Jonon nimi
+     * @param string|null $queue Jonon nimi (null = kaikki)
      * @return array
      */
-    public function get_stats( string $queue = 'default' ): array {
-        global $wpdb;
-        $table = $wpdb->prefix . 'job_queue';
+    public function get_stats( ?string $queue = null ): array {
+        return $this->driver->getStats( $queue );
+    }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        $stats = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT status, COUNT(*) as count
-                FROM {$table}
-                WHERE queue = %s
-                GROUP BY status",
-                $queue
-            ),
-            ARRAY_A
-        );
+    /**
+     * Hae jobit
+     *
+     * @param array $filters Suodattimet
+     * @return array
+     */
+    public function get_jobs( array $filters = [] ): array {
+        return $this->driver->getJobs( $filters );
+    }
 
-        $result = [
-            'queued' => 0,
-            'running' => 0,
-            'completed' => 0,
-            'failed' => 0,
-        ];
+    /**
+     * Hae jonot
+     *
+     * @return array
+     */
+    public function get_queues(): array {
+        return $this->driver->getQueues();
+    }
 
-        foreach ( $stats as $stat ) {
-            if ( isset( $result[ $stat['status'] ] ) ) {
-                $result[ $stat['status'] ] = (int) $stat['count'];
-            }
-        }
+    /**
+     * Hae job
+     *
+     * @param int $job_id Job ID
+     * @return object|null
+     */
+    public function find_job( int $job_id ): ?object {
+        return $this->driver->find( $job_id );
+    }
 
-        return $result;
+    /**
+     * Peruuta job
+     *
+     * @param int $job_id Job ID
+     * @return bool
+     */
+    public function cancel_job( int $job_id ): bool {
+        return $this->driver->cancel( $job_id );
+    }
+
+    /**
+     * Tarkista driver-yhteys
+     *
+     * @return bool
+     */
+    public function is_connected(): bool {
+        return $this->driver->isConnected();
     }
 }

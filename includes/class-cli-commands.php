@@ -1553,6 +1553,411 @@ class CLI_Commands extends WP_CLI_Command {
             WP_CLI::log( "Rate limittiä ei ollut asetettu." );
         }
     }
+
+    /**
+     * Näytä driver-tiedot
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 driver
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function driver( $args, $assoc_args ) {
+        $manager = wp_cron_v2();
+        $driver = $manager->getDriver();
+        $driver_class = get_class( $driver );
+
+        // Muodosta lyhyt nimi
+        $driver_name = match ( true ) {
+            str_contains( $driver_class, 'RedisDriver' ) => 'Redis',
+            str_contains( $driver_class, 'DatabaseDriver' ) => 'Database',
+            default => $driver_class,
+        };
+
+        WP_CLI::log( WP_CLI::colorize( "%GQueue Driver%n" ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+        WP_CLI::log( "Driver:       {$driver_name}" );
+        WP_CLI::log( "Luokka:       {$driver_class}" );
+        WP_CLI::log( "Yhteys:       " . ( $driver->isConnected() ? 'OK' : 'VIRHE' ) );
+
+        // Redis-spesifiset tiedot
+        if ( $driver_name === 'Redis' && method_exists( $driver, 'getRedis' ) ) {
+            $redis = $driver->getRedis();
+            if ( $redis ) {
+                try {
+                    $info = $redis->info();
+                    WP_CLI::log( '' );
+                    WP_CLI::log( WP_CLI::colorize( "%GRedis Info%n" ) );
+                    WP_CLI::log( str_repeat( '─', 40 ) );
+                    WP_CLI::log( "Versio:       " . ( $info['redis_version'] ?? 'N/A' ) );
+                    WP_CLI::log( "Muisti:       " . ( $info['used_memory_human'] ?? 'N/A' ) );
+                    WP_CLI::log( "Clients:      " . ( $info['connected_clients'] ?? 'N/A' ) );
+                    WP_CLI::log( "Keys:         " . ( $info['db0'] ?? 'N/A' ) );
+                } catch ( \Exception $e ) {
+                    WP_CLI::warning( "Redis info haku epäonnistui: " . $e->getMessage() );
+                }
+            }
+        }
+
+        // Näytä tuetut driverit
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( "%GTuetut Driverit%n" ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+
+        $drivers = \WPCronV2\Queue\Drivers\DriverFactory::getSupportedDrivers();
+        foreach ( $drivers as $key => $info ) {
+            $status = $info['available'] ? WP_CLI::colorize( '%g✓%n' ) : WP_CLI::colorize( '%r✗%n' );
+            WP_CLI::log( "{$status} {$info['name']}" );
+        }
+    }
+
+    /**
+     * Testaa Redis-yhteys
+     *
+     * ## OPTIONS
+     *
+     * [--host=<host>]
+     * : Redis host
+     * ---
+     * default: 127.0.0.1
+     * ---
+     *
+     * [--port=<port>]
+     * : Redis port
+     * ---
+     * default: 6379
+     * ---
+     *
+     * [--password=<password>]
+     * : Redis salasana
+     *
+     * [--database=<database>]
+     * : Redis database numero
+     * ---
+     * default: 0
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 redis-test
+     *     wp cron-v2 redis-test --host=redis.example.com --port=6380
+     *
+     * @subcommand redis-test
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function redis_test( $args, $assoc_args ) {
+        if ( ! \WPCronV2\Queue\Drivers\DriverFactory::isRedisAvailable() ) {
+            WP_CLI::error( 'PHP Redis extension ei ole asennettu.' );
+            return;
+        }
+
+        $config = [];
+
+        if ( isset( $assoc_args['host'] ) ) {
+            $config['host'] = $assoc_args['host'];
+        }
+        if ( isset( $assoc_args['port'] ) ) {
+            $config['port'] = (int) $assoc_args['port'];
+        }
+        if ( isset( $assoc_args['password'] ) ) {
+            $config['password'] = $assoc_args['password'];
+        }
+        if ( isset( $assoc_args['database'] ) ) {
+            $config['database'] = (int) $assoc_args['database'];
+        }
+
+        WP_CLI::log( 'Testataan Redis-yhteyttä...' );
+
+        $result = \WPCronV2\Queue\Drivers\DriverFactory::testRedisConnection( $config );
+
+        if ( $result['success'] ) {
+            WP_CLI::success( $result['message'] );
+        } else {
+            WP_CLI::error( $result['message'] );
+        }
+    }
+
+    /**
+     * Vaihda queue driver
+     *
+     * ## OPTIONS
+     *
+     * <driver>
+     * : Driver tyyppi (database, redis)
+     *
+     * [--save]
+     * : Tallenna asetus pysyvästi
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 set-driver redis
+     *     wp cron-v2 set-driver database --save
+     *
+     * @subcommand set-driver
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function set_driver( $args, $assoc_args ) {
+        $driver = $args[0];
+        $save = isset( $assoc_args['save'] );
+
+        $supported = [ 'database', 'redis' ];
+
+        if ( ! in_array( $driver, $supported, true ) ) {
+            WP_CLI::error( "Tuntematon driver: {$driver}. Tuetut: " . implode( ', ', $supported ) );
+            return;
+        }
+
+        if ( $driver === 'redis' && ! \WPCronV2\Queue\Drivers\DriverFactory::isRedisAvailable() ) {
+            WP_CLI::error( 'PHP Redis extension ei ole asennettu.' );
+            return;
+        }
+
+        try {
+            if ( $driver === 'redis' ) {
+                // Testaa yhteys ensin
+                $result = \WPCronV2\Queue\Drivers\DriverFactory::testRedisConnection();
+                if ( ! $result['success'] ) {
+                    WP_CLI::error( 'Redis-yhteys epäonnistui: ' . $result['message'] );
+                    return;
+                }
+            }
+
+            if ( $save ) {
+                $settings = get_option( 'wp_cron_v2_settings', [] );
+                $settings['driver'] = $driver;
+                update_option( 'wp_cron_v2_settings', $settings );
+                WP_CLI::success( "Driver '{$driver}' asetettu ja tallennettu." );
+            } else {
+                WP_CLI::success( "Driver '{$driver}' asetettu tälle sessiolle." );
+                WP_CLI::log( "Käytä --save tallentaaksesi pysyvästi." );
+            }
+
+        } catch ( \Exception $e ) {
+            WP_CLI::error( 'Virhe: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Tyhjennä Redis-jonot (varoitus: poistaa kaikki jobit!)
+     *
+     * ## OPTIONS
+     *
+     * [--yes]
+     * : Ohita varmistus
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 redis-flush --yes
+     *
+     * @subcommand redis-flush
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function redis_flush( $args, $assoc_args ) {
+        $driver = wp_cron_v2()->getDriver();
+
+        if ( ! $driver instanceof \WPCronV2\Queue\Drivers\RedisDriver ) {
+            WP_CLI::error( 'Tämä komento toimii vain Redis-driverilla.' );
+            return;
+        }
+
+        WP_CLI::confirm( 'Tämä poistaa KAIKKI jobit Redistä. Oletko varma?', $assoc_args );
+
+        if ( $driver->flush() ) {
+            WP_CLI::success( 'Redis-jonot tyhjennetty.' );
+        } else {
+            WP_CLI::error( 'Tyhjennys epäonnistui.' );
+        }
+    }
+
+    /**
+     * Näytä multisite-tilastot
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto (table, json, csv)
+     * ---
+     * default: table
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 network-stats
+     *     wp cron-v2 network-stats --format=json
+     *
+     * @subcommand network-stats
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function network_stats( $args, $assoc_args ) {
+        $network = wp_cron_v2_network();
+
+        if ( ! $network->isMultisite() ) {
+            WP_CLI::error( 'Tämä komento toimii vain multisite-ympäristössä.' );
+            return;
+        }
+
+        $stats = $network->getNetworkStats();
+
+        if ( empty( $stats ) ) {
+            WP_CLI::log( 'Ei jobeja.' );
+            return;
+        }
+
+        $format = $assoc_args['format'] ?? 'table';
+
+        $rows = [];
+        foreach ( $stats as $site_stats ) {
+            $rows[] = [
+                'site_id'   => $site_stats['site_id'],
+                'site_name' => $site_stats['site_name'],
+                'queued'    => $site_stats['queued'],
+                'running'   => $site_stats['running'],
+                'completed' => $site_stats['completed'],
+                'failed'    => $site_stats['failed'],
+            ];
+        }
+
+        WP_CLI\Utils\format_items( $format, $rows, [ 'site_id', 'site_name', 'queued', 'running', 'completed', 'failed' ] );
+    }
+
+    /**
+     * Listaa multisite-sivustot
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto (table, json, csv)
+     * ---
+     * default: table
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 sites
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function sites( $args, $assoc_args ) {
+        $network = wp_cron_v2_network();
+
+        if ( ! $network->isMultisite() ) {
+            WP_CLI::error( 'Tämä komento toimii vain multisite-ympäristössä.' );
+            return;
+        }
+
+        $site_ids = $network->getSites();
+
+        if ( empty( $site_ids ) ) {
+            WP_CLI::log( 'Ei sivustoja.' );
+            return;
+        }
+
+        $format = $assoc_args['format'] ?? 'table';
+
+        $rows = [];
+        foreach ( $site_ids as $site_id ) {
+            $info = $network->getSiteInfo( $site_id );
+            $queues = $network->getSiteQueues( $site_id );
+
+            $total_jobs = 0;
+            foreach ( $queues as $queue_stats ) {
+                $total_jobs += array_sum( $queue_stats );
+            }
+
+            $rows[] = [
+                'id'         => $info['id'],
+                'name'       => $info['name'],
+                'domain'     => $info['domain'] . $info['path'],
+                'queues'     => count( $queues ),
+                'total_jobs' => $total_jobs,
+            ];
+        }
+
+        WP_CLI\Utils\format_items( $format, $rows, [ 'id', 'name', 'domain', 'queues', 'total_jobs' ] );
+    }
+
+    /**
+     * Käynnistä worker tietylle sivustolle
+     *
+     * ## OPTIONS
+     *
+     * <site_id>
+     * : Sivuston ID
+     *
+     * [--queue=<queue>]
+     * : Jonon nimi
+     * ---
+     * default: default
+     * ---
+     *
+     * [--sleep=<seconds>]
+     * : Odotusaika sekunteina kun jono on tyhjä
+     * ---
+     * default: 3
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 site-worker 2 --queue=default
+     *
+     * @subcommand site-worker
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function site_worker( $args, $assoc_args ) {
+        $network = wp_cron_v2_network();
+
+        if ( ! $network->isMultisite() ) {
+            WP_CLI::error( 'Tämä komento toimii vain multisite-ympäristössä.' );
+            return;
+        }
+
+        $site_id = (int) $args[0];
+        $queue = $assoc_args['queue'] ?? 'default';
+        $sleep = (int) ( $assoc_args['sleep'] ?? 3 );
+
+        // Tarkista että sivusto on olemassa
+        $site_info = $network->getSiteInfo( $site_id );
+        if ( ! $site_info ) {
+            WP_CLI::error( "Sivustoa {$site_id} ei löydy." );
+            return;
+        }
+
+        WP_CLI::log( "Worker käynnistetty sivustolle {$site_info['name']} (ID: {$site_id}), jono: {$queue}" );
+
+        // Aseta driver käyttämään tiettyä sivustoa
+        $driver = wp_cron_v2()->getDriver();
+        if ( method_exists( $driver, 'setSiteId' ) ) {
+            $driver->setSiteId( $site_id );
+        }
+
+        $processed = 0;
+
+        while ( true ) {
+            // Prosessoi jobit sivuston kontekstissa
+            $result = $network->runOnSite( $site_id, function() use ( $queue ) {
+                return wp_cron_v2()->process_next_job( $queue );
+            } );
+
+            if ( $result ) {
+                $processed++;
+                WP_CLI::log( "Job prosessoitu sivustolla {$site_id}. Yhteensä: {$processed}" );
+            } else {
+                sleep( $sleep );
+            }
+
+            if ( function_exists( 'pcntl_signal_dispatch' ) ) {
+                pcntl_signal_dispatch();
+            }
+        }
+    }
 }
 
 // Rekisteröi komennot

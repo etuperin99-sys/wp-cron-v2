@@ -3,7 +3,7 @@
  * Plugin Name: WP Cron v2
  * Plugin URI: https://gitlab.com/etuperin99/wp-cron-v2
  * Description: Moderni job queue WordPressille - Laravel Horizon -tason taustaprosessijärjestelmä
- * Version: 0.3.0
+ * Version: 0.4.0
  * Author: Etuperin99
  * Author URI: https://gitlab.com/etuperin99
  * License: GPL-2.0+
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Pluginin vakiot
-define( 'WP_CRON_V2_VERSION', '0.3.0' );
+define( 'WP_CRON_V2_VERSION', '0.4.0' );
 define( 'WP_CRON_V2_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -126,6 +126,15 @@ function wp_cron_v2_rate_limiter() {
  */
 function wp_cron_v2_webhooks() {
     return WPCronV2\Queue\Webhooks::get_instance();
+}
+
+/**
+ * Pääsy multisite network manageriin
+ *
+ * @return WPCronV2\Multisite\NetworkManager
+ */
+function wp_cron_v2_network() {
+    return WPCronV2\Multisite\NetworkManager::get_instance();
 }
 
 /**

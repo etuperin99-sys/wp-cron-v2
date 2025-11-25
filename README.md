@@ -18,7 +18,7 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Health check | ❌ | ✅ `wp cron-v2 health` |
 | Skaalautuvuus | ❌ | ✅ Cluster-ready |
 
-## Nykytila (v0.3.0)
+## Nykytila (v0.4.0)
 
 | Ominaisuus | Tila |
 |------------|------|
@@ -30,7 +30,7 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Scheduled jobs (toistuvat) | ✅ |
 | Admin UI (dashboard, job-lista) | ✅ |
 | WP-Cron backwards compatibility | ✅ |
-| WP-CLI komennot (31 komentoa) | ✅ |
+| WP-CLI komennot (38 komentoa) | ✅ |
 | Health check | ✅ |
 | Cleanup & maintenance | ✅ |
 | Job Batching | ✅ |
@@ -39,8 +39,8 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Rate Limiting | ✅ |
 | Webhooks | ✅ |
 | Job Unique/Deduplication | ✅ |
-| Redis-driver | ❌ Tulossa |
-| Multisite | ❌ Tulossa |
+| Redis-driver | ✅ |
+| Multisite-tuki | ✅ |
 
 ## Asennus
 
@@ -272,6 +272,77 @@ wp cron-v2 work --limit=100
 wp cron-v2 health
 ```
 
+### 10. Redis Driver
+
+Redis-driver tarjoaa huomattavasti paremman suorituskyvyn suurilla job-määrillä.
+
+**Vaatimukset:**
+- PHP Redis extension (`php-redis`)
+- Redis Server
+
+**Konfigurointi wp-config.php:ssä:**
+```php
+// Redis-asetukset
+define( 'WP_CRON_V2_REDIS_HOST', '127.0.0.1' );
+define( 'WP_CRON_V2_REDIS_PORT', 6379 );
+define( 'WP_CRON_V2_REDIS_PASSWORD', '' );
+define( 'WP_CRON_V2_REDIS_DATABASE', 0 );
+```
+
+**Vaihda driver:**
+```bash
+# Testaa Redis-yhteys
+wp cron-v2 redis-test
+
+# Vaihda Redis-driveriin
+wp cron-v2 set-driver redis --save
+
+# Näytä driver-tiedot
+wp cron-v2 driver
+```
+
+**Ohjelmallisesti:**
+```php
+// Vaihda Redis-driveriin tällä sessiolla
+wp_cron_v2()->setDriver( 'redis' );
+
+// Tai database-driveriin
+wp_cron_v2()->setDriver( 'database' );
+```
+
+### 11. Multisite
+
+WP Cron v2 tukee WordPress Multisite -asennuksia. Jobit ovat oletuksena site-kohtaisia.
+
+**Site-kohtaiset jobit:**
+```php
+// Jobit tallentuvat automaattisesti nykyiselle sivustolle
+wp_cron_v2()->dispatch( new MyJob() );
+```
+
+**Network-komennot:**
+```bash
+# Näytä kaikkien sivustojen tilastot
+wp cron-v2 network-stats
+
+# Listaa sivustot ja niiden job-määrät
+wp cron-v2 sites
+
+# Käynnistä worker tietylle sivustolle
+wp cron-v2 site-worker 2 --queue=default
+```
+
+**Ohjelmallisesti:**
+```php
+// Suorita koodi tietyllä sivustolla
+wp_cron_v2_network()->runOnSite( 2, function() {
+    wp_cron_v2()->dispatch( new SiteSpecificJob() );
+});
+
+// Hae verkon tilastot
+$stats = wp_cron_v2_network()->getNetworkStats();
+```
+
 ## WP-CLI Komennot
 
 ### Worker & Prosessointi
@@ -404,7 +475,7 @@ wp cron-v2 rate-limit-stats email-jobs --max=10 --per=60
 wp cron-v2 rate-limit-reset email-jobs
 ```
 
-## Kaikki CLI-komennot (31)
+## Kaikki CLI-komennot (38)
 
 | Komento | Kuvaus |
 |---------|--------|
@@ -439,6 +510,13 @@ wp cron-v2 rate-limit-reset email-jobs
 | `webhook-toggle` | Käyttöön/pois käytöstä |
 | `rate-limit-stats` | Näytä rate limit tilastot |
 | `rate-limit-reset` | Nollaa rate limit |
+| `driver` | Näytä driver-tiedot |
+| `redis-test` | Testaa Redis-yhteys |
+| `set-driver <type>` | Vaihda driver |
+| `redis-flush` | Tyhjennä Redis-jonot |
+| `network-stats` | Multisite tilastot |
+| `sites` | Listaa multisite-sivustot |
+| `site-worker <id>` | Worker tietylle sivustolle |
 
 ## Admin UI
 
@@ -633,7 +711,12 @@ wp-cron-v2/
 │   │   ├── Batch.php           # Job batching
 │   │   ├── Chain.php           # Job chains
 │   │   ├── RateLimiter.php     # Rate limiting
-│   │   └── Webhooks.php        # HTTP webhooks
+│   │   ├── Webhooks.php        # HTTP webhooks
+│   │   └── Drivers/
+│   │       ├── DriverInterface.php   # Driver rajapinta
+│   │       ├── DriverFactory.php     # Driver factory
+│   │       ├── DatabaseDriver.php    # MySQL/SQLite driver
+│   │       └── RedisDriver.php       # Redis driver
 │   │
 │   ├── Jobs/
 │   │   ├── Job.php             # Abstrakti base class
@@ -645,13 +728,16 @@ wp-cron-v2/
 │   ├── Api/
 │   │   └── RestController.php  # REST API
 │   │
+│   ├── Multisite/
+│   │   └── NetworkManager.php  # Multisite hallinta
+│   │
 │   └── Admin/
 │       └── AdminPage.php       # Hallintapaneeli
 │
 ├── includes/
 │   ├── class-activator.php     # Taulujen luonti
 │   ├── class-deactivator.php
-│   └── class-cli-commands.php  # WP-CLI (31 komentoa)
+│   └── class-cli-commands.php  # WP-CLI (38 komentoa)
 │
 └── assets/
     ├── css/admin.css
@@ -891,7 +977,7 @@ POST /wp-json/wp-cron-v2/v1/actions/release-stale
 - [x] Scheduled jobs
 - [x] Admin UI
 - [x] WP-Cron adapter
-- [x] WP-CLI (31 komentoa)
+- [x] WP-CLI (38 komentoa)
 - [x] Health check
 - [x] Cleanup & maintenance
 - [x] Job batching
@@ -900,8 +986,13 @@ POST /wp-json/wp-cron-v2/v1/actions/release-stale
 - [x] Rate limiting
 - [x] Webhooks
 - [x] Job unique/deduplication
-- [ ] Redis-driver
-- [ ] Multisite-tuki
+- [x] Redis-driver
+- [x] Multisite-tuki
+
+**Tulossa:**
+- [ ] Amazon SQS driver
+- [ ] Horizon-tyylinen dashboard
+- [ ] Job metrics & analytics
 
 ## Kehitys
 

@@ -74,13 +74,25 @@ class Activator {
 
         dbDelta( $sql_failed );
 
-        // Lisää batch_id sarake job_queue tauluun jos puuttuu
-        // Kokeile lisätä sarake - jos se on jo olemassa, query epäonnistuu hiljaa
+        // Lisää puuttuvia sarakkeita - jos sarake on jo olemassa, query epäonnistuu hiljaa
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $wpdb->suppress_errors( true );
+
+        // batch_id
         $wpdb->query(
             "ALTER TABLE {$table_name} ADD COLUMN batch_id varchar(36) DEFAULT NULL"
         );
+
+        // site_id (multisite)
+        $wpdb->query(
+            "ALTER TABLE {$table_name} ADD COLUMN site_id bigint(20) UNSIGNED DEFAULT NULL"
+        );
+
+        // Lisää site_id indeksi
+        $wpdb->query(
+            "ALTER TABLE {$table_name} ADD KEY site_id (site_id)"
+        );
+
         $wpdb->suppress_errors( false );
 
         // Luo job_batches taulu
