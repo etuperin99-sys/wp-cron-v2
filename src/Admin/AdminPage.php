@@ -1,6 +1,6 @@
 <?php
 /**
- * Admin hallintapaneeli
+ * Admin panel
  *
  * @package WPCronV2\Admin
  */
@@ -17,7 +17,7 @@ class AdminPage {
     private static ?AdminPage $instance = null;
 
     /**
-     * Hae singleton
+     * Get singleton
      *
      * @return AdminPage
      */
@@ -29,7 +29,7 @@ class AdminPage {
     }
 
     /**
-     * Konstruktori
+     * Constructor
      */
     private function __construct() {
         add_action( 'admin_menu', [ $this, 'add_menu_page' ] );
@@ -40,7 +40,7 @@ class AdminPage {
     }
 
     /**
-     * Lisää valikkosivu
+     * Add menu page
      */
     public function add_menu_page(): void {
         add_menu_page(
@@ -55,8 +55,8 @@ class AdminPage {
 
         add_submenu_page(
             'wp-cron-v2',
-            __( 'Jono', 'wp-cron-v2' ),
-            __( 'Jono', 'wp-cron-v2' ),
+            __( 'Queue', 'wp-cron-v2' ),
+            __( 'Queue', 'wp-cron-v2' ),
             'manage_options',
             'wp-cron-v2',
             [ $this, 'render_page' ]
@@ -64,8 +64,8 @@ class AdminPage {
 
         add_submenu_page(
             'wp-cron-v2',
-            __( 'Asetukset', 'wp-cron-v2' ),
-            __( 'Asetukset', 'wp-cron-v2' ),
+            __( 'Settings', 'wp-cron-v2' ),
+            __( 'Settings', 'wp-cron-v2' ),
             'manage_options',
             'wp-cron-v2-settings',
             [ $this, 'render_settings_page' ]
@@ -73,7 +73,7 @@ class AdminPage {
     }
 
     /**
-     * Lataa CSS/JS
+     * Load CSS/JS
      *
      * @param string $hook
      */
@@ -104,16 +104,16 @@ class AdminPage {
     }
 
     /**
-     * Renderöi pääsivu
+     * Render main page
      */
     public function render_page(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'job_queue';
 
-        // Hae tilastot
+        // Get stats
         $stats = $this->get_all_stats();
 
-        // Hae jobit
+        // Get jobs
         $status_filter = isset( $_GET['status'] ) ? sanitize_key( $_GET['status'] ) : '';
         $queue_filter = isset( $_GET['queue'] ) ? sanitize_key( $_GET['queue'] ) : '';
 
@@ -138,68 +138,68 @@ class AdminPage {
         <div class="wrap wp-cron-v2-admin">
             <h1><?php esc_html_e( 'WP Cron v2 - Job Queue', 'wp-cron-v2' ); ?></h1>
 
-            <!-- Tilastot -->
+            <!-- Stats -->
             <div class="wp-cron-v2-stats">
                 <div class="stat-card stat-queued">
                     <span class="stat-number"><?php echo esc_html( $stats['queued'] ); ?></span>
-                    <span class="stat-label"><?php esc_html_e( 'Jonossa', 'wp-cron-v2' ); ?></span>
+                    <span class="stat-label"><?php esc_html_e( 'Queued', 'wp-cron-v2' ); ?></span>
                 </div>
                 <div class="stat-card stat-running">
                     <span class="stat-number"><?php echo esc_html( $stats['running'] ); ?></span>
-                    <span class="stat-label"><?php esc_html_e( 'Käynnissä', 'wp-cron-v2' ); ?></span>
+                    <span class="stat-label"><?php esc_html_e( 'Running', 'wp-cron-v2' ); ?></span>
                 </div>
                 <div class="stat-card stat-completed">
                     <span class="stat-number"><?php echo esc_html( $stats['completed'] ); ?></span>
-                    <span class="stat-label"><?php esc_html_e( 'Valmiit', 'wp-cron-v2' ); ?></span>
+                    <span class="stat-label"><?php esc_html_e( 'Completed', 'wp-cron-v2' ); ?></span>
                 </div>
                 <div class="stat-card stat-failed">
                     <span class="stat-number"><?php echo esc_html( $stats['failed'] ); ?></span>
-                    <span class="stat-label"><?php esc_html_e( 'Epäonnistuneet', 'wp-cron-v2' ); ?></span>
+                    <span class="stat-label"><?php esc_html_e( 'Failed', 'wp-cron-v2' ); ?></span>
                 </div>
             </div>
 
-            <!-- Suodattimet -->
+            <!-- Filters -->
             <div class="wp-cron-v2-filters">
                 <form method="get">
                     <input type="hidden" name="page" value="wp-cron-v2">
 
                     <select name="status">
-                        <option value=""><?php esc_html_e( 'Kaikki statukset', 'wp-cron-v2' ); ?></option>
-                        <option value="queued" <?php selected( $status_filter, 'queued' ); ?>><?php esc_html_e( 'Jonossa', 'wp-cron-v2' ); ?></option>
-                        <option value="running" <?php selected( $status_filter, 'running' ); ?>><?php esc_html_e( 'Käynnissä', 'wp-cron-v2' ); ?></option>
-                        <option value="completed" <?php selected( $status_filter, 'completed' ); ?>><?php esc_html_e( 'Valmiit', 'wp-cron-v2' ); ?></option>
-                        <option value="failed" <?php selected( $status_filter, 'failed' ); ?>><?php esc_html_e( 'Epäonnistuneet', 'wp-cron-v2' ); ?></option>
+                        <option value=""><?php esc_html_e( 'All statuses', 'wp-cron-v2' ); ?></option>
+                        <option value="queued" <?php selected( $status_filter, 'queued' ); ?>><?php esc_html_e( 'Queued', 'wp-cron-v2' ); ?></option>
+                        <option value="running" <?php selected( $status_filter, 'running' ); ?>><?php esc_html_e( 'Running', 'wp-cron-v2' ); ?></option>
+                        <option value="completed" <?php selected( $status_filter, 'completed' ); ?>><?php esc_html_e( 'Completed', 'wp-cron-v2' ); ?></option>
+                        <option value="failed" <?php selected( $status_filter, 'failed' ); ?>><?php esc_html_e( 'Failed', 'wp-cron-v2' ); ?></option>
                     </select>
 
                     <select name="queue">
-                        <option value=""><?php esc_html_e( 'Kaikki jonot', 'wp-cron-v2' ); ?></option>
+                        <option value=""><?php esc_html_e( 'All queues', 'wp-cron-v2' ); ?></option>
                         <?php foreach ( $queues as $q ) : ?>
                             <option value="<?php echo esc_attr( $q ); ?>" <?php selected( $queue_filter, $q ); ?>><?php echo esc_html( $q ); ?></option>
                         <?php endforeach; ?>
                     </select>
 
-                    <button type="submit" class="button"><?php esc_html_e( 'Suodata', 'wp-cron-v2' ); ?></button>
+                    <button type="submit" class="button"><?php esc_html_e( 'Filter', 'wp-cron-v2' ); ?></button>
                 </form>
             </div>
 
-            <!-- Job-lista -->
+            <!-- Job list -->
             <table class="wp-list-table widefat fixed striped">
                 <thead>
                     <tr>
                         <th style="width: 50px;">ID</th>
                         <th><?php esc_html_e( 'Job', 'wp-cron-v2' ); ?></th>
-                        <th style="width: 100px;"><?php esc_html_e( 'Jono', 'wp-cron-v2' ); ?></th>
-                        <th style="width: 80px;"><?php esc_html_e( 'Prioriteetti', 'wp-cron-v2' ); ?></th>
+                        <th style="width: 100px;"><?php esc_html_e( 'Queue', 'wp-cron-v2' ); ?></th>
+                        <th style="width: 80px;"><?php esc_html_e( 'Priority', 'wp-cron-v2' ); ?></th>
                         <th style="width: 100px;"><?php esc_html_e( 'Status', 'wp-cron-v2' ); ?></th>
-                        <th style="width: 80px;"><?php esc_html_e( 'Yritykset', 'wp-cron-v2' ); ?></th>
-                        <th style="width: 150px;"><?php esc_html_e( 'Luotu', 'wp-cron-v2' ); ?></th>
-                        <th style="width: 120px;"><?php esc_html_e( 'Toiminnot', 'wp-cron-v2' ); ?></th>
+                        <th style="width: 80px;"><?php esc_html_e( 'Attempts', 'wp-cron-v2' ); ?></th>
+                        <th style="width: 150px;"><?php esc_html_e( 'Created', 'wp-cron-v2' ); ?></th>
+                        <th style="width: 120px;"><?php esc_html_e( 'Actions', 'wp-cron-v2' ); ?></th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if ( empty( $jobs ) ) : ?>
                         <tr>
-                            <td colspan="8"><?php esc_html_e( 'Ei jobeja.', 'wp-cron-v2' ); ?></td>
+                            <td colspan="8"><?php esc_html_e( 'No jobs.', 'wp-cron-v2' ); ?></td>
                         </tr>
                     <?php else : ?>
                         <?php foreach ( $jobs as $job ) : ?>
@@ -227,12 +227,12 @@ class AdminPage {
                                 <td>
                                     <?php if ( $job['status'] === 'failed' ) : ?>
                                         <button class="button button-small retry-job" data-id="<?php echo esc_attr( $job['id'] ); ?>">
-                                            <?php esc_html_e( 'Yritä', 'wp-cron-v2' ); ?>
+                                            <?php esc_html_e( 'Retry', 'wp-cron-v2' ); ?>
                                         </button>
                                     <?php endif; ?>
                                     <?php if ( $job['status'] === 'queued' ) : ?>
                                         <button class="button button-small cancel-job" data-id="<?php echo esc_attr( $job['id'] ); ?>">
-                                            <?php esc_html_e( 'Peruuta', 'wp-cron-v2' ); ?>
+                                            <?php esc_html_e( 'Cancel', 'wp-cron-v2' ); ?>
                                         </button>
                                     <?php endif; ?>
                                 </td>
@@ -246,10 +246,10 @@ class AdminPage {
     }
 
     /**
-     * Renderöi asetussivu
+     * Render settings page
      */
     public function render_settings_page(): void {
-        // Tallenna asetukset
+        // Save settings
         if ( isset( $_POST['wp_cron_v2_save_settings'] ) && wp_verify_nonce( $_POST['_wpnonce'], 'wp_cron_v2_settings' ) ) {
             $settings = [
                 'enable_wp_cron_adapter' => ! empty( $_POST['enable_wp_cron_adapter'] ),
@@ -257,13 +257,13 @@ class AdminPage {
                 'max_attempts' => absint( $_POST['max_attempts'] ?? 3 ),
             ];
             update_option( 'wp_cron_v2_settings', $settings );
-            echo '<div class="notice notice-success"><p>' . esc_html__( 'Asetukset tallennettu.', 'wp-cron-v2' ) . '</p></div>';
+            echo '<div class="notice notice-success"><p>' . esc_html__( 'Settings saved.', 'wp-cron-v2' ) . '</p></div>';
         }
 
         $settings = get_option( 'wp_cron_v2_settings', [] );
         ?>
         <div class="wrap">
-            <h1><?php esc_html_e( 'WP Cron v2 - Asetukset', 'wp-cron-v2' ); ?></h1>
+            <h1><?php esc_html_e( 'WP Cron v2 - Settings', 'wp-cron-v2' ); ?></h1>
 
             <form method="post">
                 <?php wp_nonce_field( 'wp_cron_v2_settings' ); ?>
@@ -274,19 +274,19 @@ class AdminPage {
                         <td>
                             <label>
                                 <input type="checkbox" name="enable_wp_cron_adapter" value="1" <?php checked( ! empty( $settings['enable_wp_cron_adapter'] ) ); ?>>
-                                <?php esc_html_e( 'Ohjaa vanhat wp_schedule_event() kutsut WP Cron v2:een', 'wp-cron-v2' ); ?>
+                                <?php esc_html_e( 'Route legacy wp_schedule_event() calls to WP Cron v2', 'wp-cron-v2' ); ?>
                             </label>
-                            <p class="description"><?php esc_html_e( 'Kun tämä on päällä, vanhojen pluginien cron-tehtävät ohjautuvat automaattisesti WP Cron v2 jonoon.', 'wp-cron-v2' ); ?></p>
+                            <p class="description"><?php esc_html_e( 'When enabled, cron tasks from legacy plugins are automatically routed to the WP Cron v2 queue.', 'wp-cron-v2' ); ?></p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e( 'Oletusjono', 'wp-cron-v2' ); ?></th>
+                        <th scope="row"><?php esc_html_e( 'Default Queue', 'wp-cron-v2' ); ?></th>
                         <td>
                             <input type="text" name="default_queue" value="<?php echo esc_attr( $settings['default_queue'] ?? 'default' ); ?>" class="regular-text">
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e( 'Maksimi yritykset', 'wp-cron-v2' ); ?></th>
+                        <th scope="row"><?php esc_html_e( 'Max Attempts', 'wp-cron-v2' ); ?></th>
                         <td>
                             <input type="number" name="max_attempts" value="<?php echo esc_attr( $settings['max_attempts'] ?? 3 ); ?>" min="1" max="10">
                         </td>
@@ -295,22 +295,22 @@ class AdminPage {
 
                 <p class="submit">
                     <button type="submit" name="wp_cron_v2_save_settings" class="button button-primary">
-                        <?php esc_html_e( 'Tallenna asetukset', 'wp-cron-v2' ); ?>
+                        <?php esc_html_e( 'Save Settings', 'wp-cron-v2' ); ?>
                     </button>
                 </p>
             </form>
 
             <hr>
 
-            <h2><?php esc_html_e( 'Worker-komennot', 'wp-cron-v2' ); ?></h2>
-            <p><?php esc_html_e( 'Käynnistä worker terminaalissa:', 'wp-cron-v2' ); ?></p>
+            <h2><?php esc_html_e( 'Worker Commands', 'wp-cron-v2' ); ?></h2>
+            <p><?php esc_html_e( 'Start the worker in terminal:', 'wp-cron-v2' ); ?></p>
             <pre style="background: #23282d; color: #fff; padding: 15px; border-radius: 4px;">wp cron-v2 worker --queue=default</pre>
         </div>
         <?php
     }
 
     /**
-     * Hae kaikkien jonojen tilastot yhteensä
+     * Get all queue stats combined
      *
      * @return array
      */
@@ -341,7 +341,7 @@ class AdminPage {
     }
 
     /**
-     * Lyhyt luokan nimi
+     * Short class name
      *
      * @param string $class
      * @return string
@@ -352,7 +352,7 @@ class AdminPage {
     }
 
     /**
-     * AJAX: Hae tilastot
+     * AJAX: Get stats
      */
     public function ajax_get_stats(): void {
         check_ajax_referer( 'wp_cron_v2_admin', 'nonce' );
@@ -365,7 +365,7 @@ class AdminPage {
     }
 
     /**
-     * AJAX: Yritä job uudelleen
+     * AJAX: Retry job
      */
     public function ajax_retry_job(): void {
         check_ajax_referer( 'wp_cron_v2_admin', 'nonce' );
@@ -398,7 +398,7 @@ class AdminPage {
     }
 
     /**
-     * AJAX: Peruuta job
+     * AJAX: Cancel job
      */
     public function ajax_cancel_job(): void {
         check_ajax_referer( 'wp_cron_v2_admin', 'nonce' );
