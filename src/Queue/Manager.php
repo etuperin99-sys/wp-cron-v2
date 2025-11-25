@@ -269,6 +269,145 @@ class Manager {
     }
 
     /**
+     * Vapauta jumittuneet jobit (stale jobs)
+     *
+     * Jos job on ollut 'running' tilassa yli timeout-ajan,
+     * se palautetaan jonoon tai merkitään epäonnistuneeksi.
+     *
+     * @param int $timeout_minutes Timeout minuuteissa (oletus 30)
+     * @return int Vapautettujen jobien määrä
+     */
+    public function release_stale_jobs( int $timeout_minutes = 30 ): int {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'job_queue';
+        $cutoff = gmdate( 'Y-m-d H:i:s', time() - ( $timeout_minutes * 60 ) );
+
+        // Hae jumittuneet jobit
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $stale_jobs = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$table}
+                WHERE status = 'running'
+                AND updated_at < %s",
+                $cutoff
+            )
+        );
+
+        $released = 0;
+
+        foreach ( $stale_jobs as $job_row ) {
+            $attempts = (int) $job_row->attempts + 1;
+            $max_attempts = (int) $job_row->max_attempts;
+
+            if ( $attempts >= $max_attempts ) {
+                // Merkitse epäonnistuneeksi
+                $wpdb->update(
+                    $table,
+                    [
+                        'status' => 'failed',
+                        'attempts' => $attempts,
+                        'error_message' => 'Job timeout - exceeded ' . $timeout_minutes . ' minutes',
+                        'updated_at' => current_time( 'mysql', true )
+                    ],
+                    [ 'id' => $job_row->id ]
+                );
+
+                do_action( 'wp_cron_v2_job_timeout', $job_row->id, 'failed' );
+            } else {
+                // Palauta jonoon retry-logiikalla
+                $backoff = pow( 2, $attempts ) * 60;
+                $next_attempt = gmdate( 'Y-m-d H:i:s', time() + $backoff );
+
+                $wpdb->update(
+                    $table,
+                    [
+                        'status' => 'queued',
+                        'attempts' => $attempts,
+                        'available_at' => $next_attempt,
+                        'error_message' => 'Job timeout - will retry',
+                        'updated_at' => current_time( 'mysql', true )
+                    ],
+                    [ 'id' => $job_row->id ]
+                );
+
+                do_action( 'wp_cron_v2_job_timeout', $job_row->id, 'retrying' );
+            }
+
+            $released++;
+        }
+
+        return $released;
+    }
+
+    /**
+     * Siivoa vanhat valmiit jobit
+     *
+     * @param int $days_old Poista tätä vanhemmat (päivinä)
+     * @return int Poistettujen määrä
+     */
+    public function cleanup_old_jobs( int $days_old = 7 ): int {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'job_queue';
+        $cutoff = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days_old} days" ) );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $deleted = $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$table}
+                WHERE status = 'completed'
+                AND updated_at < %s",
+                $cutoff
+            )
+        );
+
+        do_action( 'wp_cron_v2_jobs_cleaned', $deleted );
+
+        return (int) $deleted;
+    }
+
+    /**
+     * Siirrä epäonnistunut job historiaan
+     *
+     * @param int $job_id
+     * @return bool
+     */
+    public function move_to_failed_history( int $job_id ): bool {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'job_queue';
+        $failed_table = $wpdb->prefix . 'job_queue_failed';
+
+        // Hae job
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $job = $wpdb->get_row(
+            $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d AND status = 'failed'", $job_id )
+        );
+
+        if ( ! $job ) {
+            return false;
+        }
+
+        // Lisää historiaan
+        $wpdb->insert(
+            $failed_table,
+            [
+                'job_type' => $job->job_type,
+                'payload' => $job->payload,
+                'queue' => $job->queue,
+                'exception' => $job->error_message,
+                'failed_at' => current_time( 'mysql', true ),
+            ]
+        );
+
+        // Poista alkuperäisestä
+        $wpdb->delete( $table, [ 'id' => $job_id ] );
+
+        return true;
+    }
+
+    /**
      * Hae jonon tilastot
      *
      * @param string $queue Jonon nimi

@@ -828,6 +828,176 @@ class CLI_Commands extends WP_CLI_Command {
             WP_CLI::error( "Schedulea '{$name}' ei löydy." );
         }
     }
+
+    /**
+     * Vapauta jumittuneet jobit (stale/timeout)
+     *
+     * ## OPTIONS
+     *
+     * [--timeout=<minutes>]
+     * : Kuinka monta minuuttia running-tilassa = timeout
+     * ---
+     * default: 30
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 release-stale
+     *     wp cron-v2 release-stale --timeout=60
+     *
+     * @subcommand release-stale
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function release_stale( $args, $assoc_args ) {
+        $timeout = (int) ( $assoc_args['timeout'] ?? 30 );
+
+        $released = wp_cron_v2()->release_stale_jobs( $timeout );
+
+        if ( $released > 0 ) {
+            WP_CLI::success( "Vapautettu {$released} jumittunutta jobia." );
+        } else {
+            WP_CLI::log( 'Ei jumittuneita jobeja.' );
+        }
+    }
+
+    /**
+     * Siivoa vanhat valmiit jobit
+     *
+     * ## OPTIONS
+     *
+     * [--days=<days>]
+     * : Poista tätä vanhemmat (päivinä)
+     * ---
+     * default: 7
+     * ---
+     *
+     * [--include-failed]
+     * : Poista myös epäonnistuneet
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 cleanup
+     *     wp cron-v2 cleanup --days=30
+     *     wp cron-v2 cleanup --days=7 --include-failed
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function cleanup( $args, $assoc_args ) {
+        global $wpdb;
+
+        $days = (int) ( $assoc_args['days'] ?? 7 );
+        $include_failed = isset( $assoc_args['include-failed'] );
+        $table = $wpdb->prefix . 'job_queue';
+
+        // Poista valmiit
+        $deleted_completed = wp_cron_v2()->cleanup_old_jobs( $days );
+
+        $deleted_failed = 0;
+        if ( $include_failed ) {
+            $cutoff = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days} days" ) );
+
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $deleted_failed = $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM {$table}
+                    WHERE status = 'failed'
+                    AND updated_at < %s",
+                    $cutoff
+                )
+            );
+        }
+
+        $total = $deleted_completed + $deleted_failed;
+
+        WP_CLI::success( "Siivottu {$total} jobia (completed: {$deleted_completed}, failed: {$deleted_failed})." );
+    }
+
+    /**
+     * Näytä jonon health status
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 health
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function health( $args, $assoc_args ) {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'job_queue';
+
+        // Tilastot
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $stats = $wpdb->get_row(
+            "SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN status = 'running' AND updated_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE) THEN 1 ELSE 0 END) as stale
+            FROM {$table}"
+        );
+
+        // Vanhin jonossa (SQLite-yhteensopiva)
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $oldest_date = $wpdb->get_var(
+            "SELECT created_at
+            FROM {$table}
+            WHERE status = 'queued'
+            ORDER BY created_at ASC
+            LIMIT 1"
+        );
+
+        $oldest = null;
+        if ( $oldest_date ) {
+            $oldest = (int) ( ( time() - strtotime( $oldest_date ) ) / 60 );
+        }
+
+        $issues = [];
+
+        if ( (int) $stats->stale > 0 ) {
+            $issues[] = WP_CLI::colorize( "%R{$stats->stale} jumittunutta jobia%n" );
+        }
+
+        if ( (int) $stats->failed > 10 ) {
+            $issues[] = WP_CLI::colorize( "%Y{$stats->failed} epäonnistunutta jobia%n" );
+        }
+
+        if ( $oldest && (int) $oldest > 60 ) {
+            $issues[] = WP_CLI::colorize( "%YVanhin job jonossa {$oldest} min%n" );
+        }
+
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%GWP Cron v2 Health Check%n' ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+        WP_CLI::log( "Jonossa:        {$stats->queued}" );
+        WP_CLI::log( "Käynnissä:      {$stats->running}" );
+        WP_CLI::log( "Epäonnistuneet: {$stats->failed}" );
+        WP_CLI::log( "Jumittuneet:    {$stats->stale}" );
+
+        if ( $oldest ) {
+            WP_CLI::log( "Vanhin jonossa: {$oldest} min" );
+        }
+
+        WP_CLI::log( '' );
+
+        if ( empty( $issues ) ) {
+            WP_CLI::success( 'Kaikki OK!' );
+        } else {
+            WP_CLI::log( WP_CLI::colorize( '%ROngelmat:%n' ) );
+            foreach ( $issues as $issue ) {
+                WP_CLI::log( "  - {$issue}" );
+            }
+            WP_CLI::log( '' );
+            WP_CLI::log( 'Korjausehdotukset:' );
+            WP_CLI::log( '  wp cron-v2 release-stale    # Vapauta jumittuneet' );
+            WP_CLI::log( '  wp cron-v2 retry-failed     # Yritä epäonnistuneet' );
+            WP_CLI::log( '  wp cron-v2 worker           # Käynnistä worker' );
+        }
+    }
 }
 
 // Rekisteröi komennot
