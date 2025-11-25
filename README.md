@@ -18,7 +18,7 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Health check | ❌ | ✅ `wp cron-v2 health` |
 | Skaalautuvuus | ❌ | ✅ Cluster-ready |
 
-## Nykytila (v0.2.0)
+## Nykytila (v0.3.0)
 
 | Ominaisuus | Tila |
 |------------|------|
@@ -30,12 +30,15 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Scheduled jobs (toistuvat) | ✅ |
 | Admin UI (dashboard, job-lista) | ✅ |
 | WP-Cron backwards compatibility | ✅ |
-| WP-CLI komennot (24 komentoa) | ✅ |
+| WP-CLI komennot (31 komentoa) | ✅ |
 | Health check | ✅ |
 | Cleanup & maintenance | ✅ |
 | Job Batching | ✅ |
 | Job Chains | ✅ |
 | REST API | ✅ |
+| Rate Limiting | ✅ |
+| Webhooks | ✅ |
+| Job Unique/Deduplication | ✅ |
 | Redis-driver | ❌ Tulossa |
 | Multisite | ❌ Tulossa |
 
@@ -152,7 +155,111 @@ wp_cron_v2_chain( 'order-' . $order_id )
     ->dispatch();
 ```
 
-### 6. Worker
+### 6. Rate Limiting
+
+```php
+<?php
+use WPCronV2\Jobs\Job;
+
+class ApiCallJob extends Job {
+
+    // Rajoita: max 10 kutsua per minuutti
+    public ?array $rate_limit = [
+        'max' => 10,
+        'per' => 60,  // sekuntia
+    ];
+
+    public function handle(): void {
+        // API-kutsu joka ei saa kuormittaa liikaa
+        wp_remote_get( 'https://api.example.com/data' );
+    }
+}
+```
+
+Rate limit tarkistetaan ennen jobin suoritusta. Jos raja ylittyy, job palautetaan jonoon ja yritetään myöhemmin.
+
+### 7. Unique Jobs (Deduplication)
+
+```php
+<?php
+use WPCronV2\Jobs\Job;
+
+class ImportUsersJob extends Job {
+
+    // Estä duplikaatit - sama job voi olla jonossa vain kerran
+    public ?string $unique_key = 'import-users';
+
+    // Lukituksen kesto sekunteina (oletus: kunnes job valmis)
+    public ?int $unique_for = 3600;  // 1 tunti
+
+    public function handle(): void {
+        // Pitkä importti joka ei saa käynnistyä uudelleen
+    }
+}
+
+// Dynaaminen unique key
+class ProcessOrderJob extends Job {
+
+    private int $order_id;
+
+    public function __construct( int $order_id ) {
+        $this->order_id = $order_id;
+        $this->unique_key = 'process-order-' . $order_id;
+    }
+}
+```
+
+### 8. Webhooks
+
+```php
+// Rekisteröi webhook
+wp_cron_v2_webhooks()->register(
+    'slack-alerts',                          // Nimi
+    'https://hooks.slack.com/services/xxx',  // URL
+    [ 'job.failed', 'health.issue' ],        // Tapahtumat
+    [
+        'secret' => 'my-secret-key',         // HMAC signature
+        'headers' => [ 'X-Custom' => 'value' ],
+    ]
+);
+
+// Poista webhook
+wp_cron_v2_webhooks()->unregister( 'slack-alerts' );
+
+// Ota käyttöön/pois
+wp_cron_v2_webhooks()->setEnabled( 'slack-alerts', false );
+
+// Testaa
+$result = wp_cron_v2_webhooks()->test( 'slack-alerts' );
+```
+
+**Tuetut tapahtumat:**
+- `job.completed` - Job suoritettu
+- `job.failed` - Job epäonnistui
+- `batch.dispatched` - Batch lähetetty
+- `chain.completed` - Chain valmis
+- `chain.failed` - Chain epäonnistui
+- `health.issue` - Terveysongelma havaittu
+- `*` - Kaikki tapahtumat
+
+**Webhook payload:**
+```json
+{
+    "event": "job.failed",
+    "timestamp": "2024-01-15 12:34:56",
+    "payload": {
+        "job_id": 123,
+        "error": "Connection timeout",
+        "file": "/path/to/Job.php",
+        "line": 45
+    }
+}
+```
+
+**HMAC Signature:**
+Jos secret on asetettu, header `X-WPCronV2-Signature` sisältää HMAC-SHA256 allekirjoituksen.
+
+### 9. Worker
 
 ```bash
 # Daemon
@@ -267,7 +374,37 @@ wp cron-v2 chain-show abc12345
 wp cron-v2 chain-delete abc12345
 ```
 
-## Kaikki CLI-komennot (24)
+### Webhooks
+
+```bash
+# Listaa kaikki webhookit
+wp cron-v2 webhooks
+
+# Lisää uusi webhook
+wp cron-v2 webhook-add slack-alerts https://hooks.slack.com/xxx --events=job.failed,health.issue --secret=my-secret
+
+# Testaa webhook (lähettää test-eventin)
+wp cron-v2 webhook-test slack-alerts
+
+# Ota käyttöön/pois käytöstä
+wp cron-v2 webhook-toggle slack-alerts disable
+wp cron-v2 webhook-toggle slack-alerts enable
+
+# Poista webhook
+wp cron-v2 webhook-remove slack-alerts
+```
+
+### Rate Limiting
+
+```bash
+# Näytä rate limit tilastot tietylle avaimelle
+wp cron-v2 rate-limit-stats email-jobs --max=10 --per=60
+
+# Nollaa rate limit (sallii heti uudet yritykset)
+wp cron-v2 rate-limit-reset email-jobs
+```
+
+## Kaikki CLI-komennot (31)
 
 | Komento | Kuvaus |
 |---------|--------|
@@ -295,6 +432,13 @@ wp cron-v2 chain-delete abc12345
 | `chains` | Listaa job chainit |
 | `chain-show <id>` | Näytä chainin tiedot |
 | `chain-delete <id>` | Poista chain |
+| `webhooks` | Listaa webhookit |
+| `webhook-add` | Lisää webhook |
+| `webhook-remove` | Poista webhook |
+| `webhook-test` | Testaa webhook |
+| `webhook-toggle` | Käyttöön/pois käytöstä |
+| `rate-limit-stats` | Näytä rate limit tilastot |
+| `rate-limit-reset` | Nollaa rate limit |
 
 ## Admin UI
 
@@ -395,6 +539,16 @@ add_action( 'wp_cron_v2_chain_completed', function( $chain_id ) {
 add_action( 'wp_cron_v2_chain_failed', function( $chain_id, $exception ) {
     // ...
 }, 10, 2 );
+
+// Job rate limited (palautettiin jonoon)
+add_action( 'wp_cron_v2_job_rate_limited', function( $job_id, $job, $delay ) {
+    // $delay = sekunteja kunnes voi yrittää uudelleen
+}, 10, 3 );
+
+// Webhook lähetetty
+add_action( 'wp_cron_v2_webhook_sent', function( $url, $event, $payload ) {
+    // ...
+}, 10, 3 );
 ```
 
 ## WP-Cron Yhteensopivuus
@@ -477,7 +631,9 @@ wp-cron-v2/
 │   │   ├── Manager.php         # Jonojen hallinta
 │   │   ├── Scheduler.php       # Toistuvat tehtävät
 │   │   ├── Batch.php           # Job batching
-│   │   └── Chain.php           # Job chains
+│   │   ├── Chain.php           # Job chains
+│   │   ├── RateLimiter.php     # Rate limiting
+│   │   └── Webhooks.php        # HTTP webhooks
 │   │
 │   ├── Jobs/
 │   │   ├── Job.php             # Abstrakti base class
@@ -495,7 +651,7 @@ wp-cron-v2/
 ├── includes/
 │   ├── class-activator.php     # Taulujen luonti
 │   ├── class-deactivator.php
-│   └── class-cli-commands.php  # WP-CLI (24 komentoa)
+│   └── class-cli-commands.php  # WP-CLI (31 komentoa)
 │
 └── assets/
     ├── css/admin.css
@@ -646,6 +802,59 @@ wp_cron_v2_chain( 'process-order' )
     ->dispatch();
 ```
 
+### wp_cron_v2_rate_limiter()
+
+```php
+// Tarkista onko kutsu sallittu
+$allowed = wp_cron_v2_rate_limiter()->attempt(
+    'api-calls',     // Avain
+    10,              // Max yritykset
+    60               // Per sekuntia
+);
+
+// Tarkista ilman "kulutusta"
+$allowed = wp_cron_v2_rate_limiter()->check( 'api-calls', 10, 60 );
+
+// Kuinka monta jäljellä
+$remaining = wp_cron_v2_rate_limiter()->remaining( 'api-calls', 10, 60 );
+
+// Milloin voi yrittää uudelleen
+$seconds = wp_cron_v2_rate_limiter()->availableIn( 'api-calls', 60 );
+
+// Nollaa rate limit
+wp_cron_v2_rate_limiter()->clear( 'api-calls' );
+```
+
+### wp_cron_v2_webhooks()
+
+```php
+// Rekisteröi webhook
+wp_cron_v2_webhooks()->register(
+    string $name,
+    string $url,
+    array $events = [ 'job.completed', 'job.failed' ],
+    array $options = [ 'secret' => '', 'headers' => [], 'enabled' => true ]
+): bool
+
+// Poista webhook
+wp_cron_v2_webhooks()->unregister( string $name ): bool
+
+// Ota käyttöön/pois
+wp_cron_v2_webhooks()->setEnabled( string $name, bool $enabled ): bool
+
+// Hae webhook
+wp_cron_v2_webhooks()->get( string $name ): ?array
+
+// Hae kaikki
+wp_cron_v2_webhooks()->getAll(): array
+
+// Lähetä manuaalinen webhook
+wp_cron_v2_webhooks()->dispatch( string $event, array $payload ): void
+
+// Testaa webhook
+wp_cron_v2_webhooks()->test( string $name ): array
+```
+
 ### REST API
 
 ```bash
@@ -682,16 +891,17 @@ POST /wp-json/wp-cron-v2/v1/actions/release-stale
 - [x] Scheduled jobs
 - [x] Admin UI
 - [x] WP-Cron adapter
-- [x] WP-CLI (24 komentoa)
+- [x] WP-CLI (31 komentoa)
 - [x] Health check
 - [x] Cleanup & maintenance
 - [x] Job batching
 - [x] Job chains
 - [x] REST API
+- [x] Rate limiting
+- [x] Webhooks
+- [x] Job unique/deduplication
 - [ ] Redis-driver
 - [ ] Multisite-tuki
-- [ ] Rate limiting
-- [ ] Webhooks
 
 ## Kehitys
 
