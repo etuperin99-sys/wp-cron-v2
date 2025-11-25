@@ -1,0 +1,53 @@
+{
+    "name": "etuperin99/wp-cron-v2",
+    "description": "Modern job queue for WordPress - Laravel Horizon level background processing",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Etuperin99",
+            "homepage": "https://github.com/etuperin99"
+        }
+    ],
+    "keywords": [
+        "wordpress",
+        "plugin",
+        "queue",
+        "jobs",
+        "cron",
+        "background-processing",
+        "worker",
+        "redis"
+    ],
+    "homepage": "https://github.com/etuperin99/wp-cron-v2",
+    "support": {
+        "issues": "https://github.com/etuperin99/wp-cron-v2/issues",
+        "source": "https://github.com/etuperin99/wp-cron-v2"
+    },
+    "require": {
+        "php": ">=8.0",
+        "composer/installers": "^1.0 || ^2.0"
+    },
+    "suggest": {
+        "ext-redis": "Required for Redis driver support"
+    },
+    "autoload": {
+        "psr-4": {
+            "WPCronV2\\": "src/"
+        },
+        "files": [
+            "wp-cron-v2.php"
+        ]
+    },
+    "config": {
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "composer/installers": true
+        }
+    },
+    "extra": {
+        "installer-name": "wp-cron-v2"
+    },
+    "minimum-stability": "stable"
+}

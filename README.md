@@ -1,36 +1,36 @@
 # WP Cron v2
 
-Moderni job queue WordPressille - Laravel Horizon -tason taustaprosessijärjestelmä.
+Modern job queue for WordPress - Laravel Horizon-level background processing system.
 
-## Miksi WP Cron v2?
+## Why WP Cron v2?
 
-Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
+The current WP-Cron is WordPress's biggest technical bottleneck:
 
-| Ongelma | WP-Cron | WP Cron v2 |
+| Problem | WP-Cron | WP Cron v2 |
 |---------|---------|------------|
-| Riippuu käyttäjäliikenteestä | ❌ | ✅ Erillinen worker |
-| Aiheuttaa CPU-piikkejä | ❌ | ✅ Tasainen kuorma |
-| Prioriteetit | ❌ | ✅ high/normal/low |
-| Retry epäonnistumisessa | ❌ | ✅ Exponential backoff |
-| Timeout-käsittely | ❌ | ✅ Stale job recovery |
-| Rinnakkaisuus | ❌ | ✅ Useita workereita |
+| Depends on user traffic | ❌ | ✅ Separate worker |
+| Causes CPU spikes | ❌ | ✅ Even load |
+| Priorities | ❌ | ✅ high/normal/low |
+| Retry on failure | ❌ | ✅ Exponential backoff |
+| Timeout handling | ❌ | ✅ Stale job recovery |
+| Concurrency | ❌ | ✅ Multiple workers |
 | Monitoring | ❌ | ✅ Admin UI + CLI |
 | Health check | ❌ | ✅ `wp cron-v2 health` |
-| Skaalautuvuus | ❌ | ✅ Cluster-ready |
+| Scalability | ❌ | ✅ Cluster-ready |
 
-## Nykytila (v0.4.0)
+## Current Status (v0.4.0)
 
-| Ominaisuus | Tila |
-|------------|------|
+| Feature | Status |
+|---------|--------|
 | Job Queue (dispatch, later) | ✅ |
 | Worker daemon | ✅ |
-| Prioriteetit (high/normal/low) | ✅ |
+| Priorities (high/normal/low) | ✅ |
 | Retry + exponential backoff | ✅ |
 | Timeout + stale job recovery | ✅ |
-| Scheduled jobs (toistuvat) | ✅ |
-| Admin UI (dashboard, job-lista) | ✅ |
+| Scheduled jobs (recurring) | ✅ |
+| Admin UI (dashboard, job list) | ✅ |
 | WP-Cron backwards compatibility | ✅ |
-| WP-CLI komennot (38 komentoa) | ✅ |
+| WP-CLI commands (38 commands) | ✅ |
 | Health check | ✅ |
 | Cleanup & maintenance | ✅ |
 | Job Batching | ✅ |
@@ -39,29 +39,29 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Rate Limiting | ✅ |
 | Webhooks | ✅ |
 | Job Unique/Deduplication | ✅ |
-| Redis-driver | ✅ |
-| Multisite-tuki | ✅ |
+| Redis driver | ✅ |
+| Multisite support | ✅ |
 
-## Asennus
+## Installation
 
 ```bash
-# Kloonaa
+# Clone
 cd /path/to/wordpress/wp-content/plugins
-git clone git@gitlab.com:etuperin99/wp-cron-v2.git
+git clone git@github.com:etuperin99-sys/wp-cron-v2.git
 
-# Aktivoi
+# Activate
 wp plugin activate wp-cron-v2
 
-# Tarkista tila
+# Check status
 wp cron-v2 health
 
-# Käynnistä worker
+# Start worker
 wp cron-v2 worker --queue=default
 ```
 
-## Pikaopas
+## Quick Start
 
-### 1. Luo Job
+### 1. Create a Job
 
 ```php
 <?php
@@ -69,9 +69,9 @@ use WPCronV2\Jobs\Job;
 
 class SendEmailJob extends Job {
 
-    public int $max_attempts = 3;     // Retry 3 kertaa
-    public string $queue = 'emails';  // Jono
-    public string $priority = 'high'; // Prioriteetti
+    public int $max_attempts = 3;     // Retry 3 times
+    public string $queue = 'emails';  // Queue
+    public string $priority = 'high'; // Priority
 
     private string $to;
 
@@ -80,7 +80,7 @@ class SendEmailJob extends Job {
     }
 
     public function handle(): void {
-        wp_mail( $this->to, 'Otsikko', 'Sisältö' );
+        wp_mail( $this->to, 'Subject', 'Content' );
     }
 
     public function failed( \Throwable $e ): void {
@@ -92,37 +92,37 @@ class SendEmailJob extends Job {
 ### 2. Dispatch
 
 ```php
-// Heti
+// Immediately
 wp_cron_v2()->dispatch( new SendEmailJob( 'test@example.com' ) );
 
-// 1 tunnin päästä
+// After 1 hour
 wp_cron_v2()->later( 3600, new SendEmailJob( 'test@example.com' ) );
 
-// Tietty jono + prioriteetti
+// Specific queue + priority
 wp_cron_v2()
     ->queue( 'emails' )
     ->priority( 'high' )
     ->dispatch( new SendEmailJob( 'test@example.com' ) );
 ```
 
-### 3. Scheduler (toistuvat)
+### 3. Scheduler (recurring)
 
 ```php
-// Päivittäin
+// Daily
 wp_cron_v2_scheduler()->schedule(
     'cleanup-logs',
     'daily',
     new CleanupJob()
 );
 
-// Intervallit: minutely, every_5_minutes, every_15_minutes,
+// Intervals: minutely, every_5_minutes, every_15_minutes,
 // every_30_minutes, hourly, twicedaily, daily, weekly
 ```
 
-### 4. Batch (useita jobeja kerralla)
+### 4. Batch (multiple jobs at once)
 
 ```php
-// Lähetä 100 sähköpostia batchina
+// Send 100 emails as a batch
 $users = get_users( [ 'number' => 100 ] );
 
 $batch = wp_cron_v2_batch( 'newsletter-send' );
@@ -133,15 +133,15 @@ foreach ( $users as $user ) {
 
 $batch->onQueue( 'emails' )
     ->then( function( $batch ) {
-        error_log( 'Newsletter lähetetty kaikille!' );
+        error_log( 'Newsletter sent to everyone!' );
     })
     ->dispatch();
 ```
 
-### 5. Chain (peräkkäiset jobit)
+### 5. Chain (sequential jobs)
 
 ```php
-// Tilauksen käsittely vaiheittain
+// Order processing step by step
 wp_cron_v2_chain( 'order-' . $order_id )
     ->add( new ValidateOrderJob( $order_id ) )
     ->add( new ChargePaymentJob( $order_id ) )
@@ -149,7 +149,7 @@ wp_cron_v2_chain( 'order-' . $order_id )
     ->add( new SendConfirmationJob( $order_id ) )
     ->onQueue( 'orders' )
     ->catch( function( $chain, $e ) use ( $order_id ) {
-        // Jos jokin vaihe epäonnistuu, peruuta tilaus
+        // If any step fails, cancel the order
         wp_update_post( [ 'ID' => $order_id, 'post_status' => 'cancelled' ] );
     })
     ->dispatch();
@@ -163,20 +163,20 @@ use WPCronV2\Jobs\Job;
 
 class ApiCallJob extends Job {
 
-    // Rajoita: max 10 kutsua per minuutti
+    // Limit: max 10 calls per minute
     public ?array $rate_limit = [
         'max' => 10,
-        'per' => 60,  // sekuntia
+        'per' => 60,  // seconds
     ];
 
     public function handle(): void {
-        // API-kutsu joka ei saa kuormittaa liikaa
+        // API call that shouldn't overload
         wp_remote_get( 'https://api.example.com/data' );
     }
 }
 ```
 
-Rate limit tarkistetaan ennen jobin suoritusta. Jos raja ylittyy, job palautetaan jonoon ja yritetään myöhemmin.
+Rate limit is checked before job execution. If the limit is exceeded, the job is returned to the queue and retried later.
 
 ### 7. Unique Jobs (Deduplication)
 
@@ -186,18 +186,18 @@ use WPCronV2\Jobs\Job;
 
 class ImportUsersJob extends Job {
 
-    // Estä duplikaatit - sama job voi olla jonossa vain kerran
+    // Prevent duplicates - same job can only be in queue once
     public ?string $unique_key = 'import-users';
 
-    // Lukituksen kesto sekunteina (oletus: kunnes job valmis)
-    public ?int $unique_for = 3600;  // 1 tunti
+    // Lock duration in seconds (default: until job completes)
+    public ?int $unique_for = 3600;  // 1 hour
 
     public function handle(): void {
-        // Pitkä importti joka ei saa käynnistyä uudelleen
+        // Long import that shouldn't restart
     }
 }
 
-// Dynaaminen unique key
+// Dynamic unique key
 class ProcessOrderJob extends Job {
 
     private int $order_id;
@@ -212,35 +212,35 @@ class ProcessOrderJob extends Job {
 ### 8. Webhooks
 
 ```php
-// Rekisteröi webhook
+// Register webhook
 wp_cron_v2_webhooks()->register(
-    'slack-alerts',                          // Nimi
+    'slack-alerts',                          // Name
     'https://hooks.slack.com/services/xxx',  // URL
-    [ 'job.failed', 'health.issue' ],        // Tapahtumat
+    [ 'job.failed', 'health.issue' ],        // Events
     [
         'secret' => 'my-secret-key',         // HMAC signature
         'headers' => [ 'X-Custom' => 'value' ],
     ]
 );
 
-// Poista webhook
+// Unregister webhook
 wp_cron_v2_webhooks()->unregister( 'slack-alerts' );
 
-// Ota käyttöön/pois
+// Enable/disable
 wp_cron_v2_webhooks()->setEnabled( 'slack-alerts', false );
 
-// Testaa
+// Test
 $result = wp_cron_v2_webhooks()->test( 'slack-alerts' );
 ```
 
-**Tuetut tapahtumat:**
-- `job.completed` - Job suoritettu
-- `job.failed` - Job epäonnistui
-- `batch.dispatched` - Batch lähetetty
-- `chain.completed` - Chain valmis
-- `chain.failed` - Chain epäonnistui
-- `health.issue` - Terveysongelma havaittu
-- `*` - Kaikki tapahtumat
+**Supported events:**
+- `job.completed` - Job executed
+- `job.failed` - Job failed
+- `batch.dispatched` - Batch dispatched
+- `chain.completed` - Chain completed
+- `chain.failed` - Chain failed
+- `health.issue` - Health issue detected
+- `*` - All events
 
 **Webhook payload:**
 ```json
@@ -257,7 +257,7 @@ $result = wp_cron_v2_webhooks()->test( 'slack-alerts' );
 ```
 
 **HMAC Signature:**
-Jos secret on asetettu, header `X-WPCronV2-Signature` sisältää HMAC-SHA256 allekirjoituksen.
+If secret is set, the header `X-WPCronV2-Signature` contains the HMAC-SHA256 signature.
 
 ### 9. Worker
 
@@ -265,7 +265,7 @@ Jos secret on asetettu, header `X-WPCronV2-Signature` sisältää HMAC-SHA256 al
 # Daemon
 wp cron-v2 worker --queue=default
 
-# Prosessoi ja lopeta
+# Process and exit
 wp cron-v2 work --limit=100
 
 # Health check
@@ -274,125 +274,125 @@ wp cron-v2 health
 
 ### 10. Redis Driver
 
-Redis-driver tarjoaa huomattavasti paremman suorituskyvyn suurilla job-määrillä.
+The Redis driver provides significantly better performance with large job volumes.
 
-**Vaatimukset:**
+**Requirements:**
 - PHP Redis extension (`php-redis`)
 - Redis Server
 
-**Konfigurointi wp-config.php:ssä:**
+**Configuration in wp-config.php:**
 ```php
-// Redis-asetukset
+// Redis settings
 define( 'WP_CRON_V2_REDIS_HOST', '127.0.0.1' );
 define( 'WP_CRON_V2_REDIS_PORT', 6379 );
 define( 'WP_CRON_V2_REDIS_PASSWORD', '' );
 define( 'WP_CRON_V2_REDIS_DATABASE', 0 );
 ```
 
-**Vaihda driver:**
+**Switch driver:**
 ```bash
-# Testaa Redis-yhteys
+# Test Redis connection
 wp cron-v2 redis-test
 
-# Vaihda Redis-driveriin
+# Switch to Redis driver
 wp cron-v2 set-driver redis --save
 
-# Näytä driver-tiedot
+# Show driver info
 wp cron-v2 driver
 ```
 
-**Ohjelmallisesti:**
+**Programmatically:**
 ```php
-// Vaihda Redis-driveriin tällä sessiolla
+// Switch to Redis driver for this session
 wp_cron_v2()->setDriver( 'redis' );
 
-// Tai database-driveriin
+// Or to database driver
 wp_cron_v2()->setDriver( 'database' );
 ```
 
 ### 11. Multisite
 
-WP Cron v2 tukee WordPress Multisite -asennuksia. Jobit ovat oletuksena site-kohtaisia.
+WP Cron v2 supports WordPress Multisite installations. Jobs are site-specific by default.
 
-**Site-kohtaiset jobit:**
+**Site-specific jobs:**
 ```php
-// Jobit tallentuvat automaattisesti nykyiselle sivustolle
+// Jobs are automatically saved to the current site
 wp_cron_v2()->dispatch( new MyJob() );
 ```
 
-**Network-komennot:**
+**Network commands:**
 ```bash
-# Näytä kaikkien sivustojen tilastot
+# Show statistics for all sites
 wp cron-v2 network-stats
 
-# Listaa sivustot ja niiden job-määrät
+# List sites and their job counts
 wp cron-v2 sites
 
-# Käynnistä worker tietylle sivustolle
+# Start worker for specific site
 wp cron-v2 site-worker 2 --queue=default
 ```
 
-**Ohjelmallisesti:**
+**Programmatically:**
 ```php
-// Suorita koodi tietyllä sivustolla
+// Execute code on specific site
 wp_cron_v2_network()->runOnSite( 2, function() {
     wp_cron_v2()->dispatch( new SiteSpecificJob() );
 });
 
-// Hae verkon tilastot
+// Get network statistics
 $stats = wp_cron_v2_network()->getNetworkStats();
 ```
 
-## WP-CLI Komennot
+## WP-CLI Commands
 
-### Worker & Prosessointi
+### Worker & Processing
 
 ```bash
-# Käynnistä worker daemon
+# Start worker daemon
 wp cron-v2 worker --queue=default --sleep=3
 
-# Prosessoi jobit kerran ja lopeta
+# Process jobs once and exit
 wp cron-v2 work --queue=default --limit=100
 
-# Suorita yksittäinen job heti
+# Run single job immediately
 wp cron-v2 run 123
 ```
 
-### Tilastot & Monitoring
+### Statistics & Monitoring
 
 ```bash
-# Health check - tarkista ongelmat
+# Health check - check for issues
 wp cron-v2 health
 
-# Nopea tilastokatsaus
+# Quick statistics overview
 wp cron-v2 stats
 
-# Yksityiskohtaiset tilastot
+# Detailed statistics
 wp cron-v2 info
 
-# Listaa jobit
+# List jobs
 wp cron-v2 list
 wp cron-v2 list --status=failed --queue=emails --limit=50
 
-# Näytä yksittäisen jobin tiedot
+# Show single job details
 wp cron-v2 show 123
 ```
 
-### Jobin Hallinta
+### Job Management
 
 ```bash
-# Peruuta job (vain queued)
+# Cancel job (queued only)
 wp cron-v2 cancel 123
 
-# Yritä epäonnistuneet uudelleen
+# Retry failed jobs
 wp cron-v2 retry-failed
 wp cron-v2 retry-failed --queue=emails --limit=50
 
-# Poista epäonnistuneet
+# Delete failed jobs
 wp cron-v2 flush-failed
 wp cron-v2 flush-failed --older-than=7
 
-# Poista valmiit
+# Delete completed jobs
 wp cron-v2 purge-completed
 wp cron-v2 purge-completed --older-than=30
 ```
@@ -400,11 +400,11 @@ wp cron-v2 purge-completed --older-than=30
 ### Maintenance
 
 ```bash
-# Vapauta jumittuneet jobit (timeout)
+# Release stuck jobs (timeout)
 wp cron-v2 release-stale
 wp cron-v2 release-stale --timeout=60
 
-# Siivoa vanhat jobit
+# Clean up old jobs
 wp cron-v2 cleanup --days=7
 wp cron-v2 cleanup --days=30 --include-failed
 ```
@@ -412,240 +412,240 @@ wp cron-v2 cleanup --days=30 --include-failed
 ### Scheduler
 
 ```bash
-# Listaa toistuvat tehtävät
+# List recurring tasks
 wp cron-v2 schedules
 
-# Pysäytä/Jatka
+# Pause/Resume
 wp cron-v2 pause-schedule cleanup-logs
 wp cron-v2 resume-schedule cleanup-logs
 
-# Poista
+# Remove
 wp cron-v2 remove-schedule cleanup-logs
 ```
 
 ### Batch & Chain
 
 ```bash
-# Listaa batchit
+# List batches
 wp cron-v2 batches
 
-# Näytä batchin tiedot
+# Show batch details
 wp cron-v2 batch-show abc12345
 
-# Peruuta batch (jonossa olevat jobit)
+# Cancel batch (queued jobs)
 wp cron-v2 batch-cancel abc12345
 
-# Listaa job chainit
+# List job chains
 wp cron-v2 chains
 
-# Näytä chainin tiedot ja edistyminen
+# Show chain details and progress
 wp cron-v2 chain-show abc12345
 
-# Poista chain
+# Delete chain
 wp cron-v2 chain-delete abc12345
 ```
 
 ### Webhooks
 
 ```bash
-# Listaa kaikki webhookit
+# List all webhooks
 wp cron-v2 webhooks
 
-# Lisää uusi webhook
+# Add new webhook
 wp cron-v2 webhook-add slack-alerts https://hooks.slack.com/xxx --events=job.failed,health.issue --secret=my-secret
 
-# Testaa webhook (lähettää test-eventin)
+# Test webhook (sends test event)
 wp cron-v2 webhook-test slack-alerts
 
-# Ota käyttöön/pois käytöstä
+# Enable/disable
 wp cron-v2 webhook-toggle slack-alerts disable
 wp cron-v2 webhook-toggle slack-alerts enable
 
-# Poista webhook
+# Remove webhook
 wp cron-v2 webhook-remove slack-alerts
 ```
 
 ### Rate Limiting
 
 ```bash
-# Näytä rate limit tilastot tietylle avaimelle
+# Show rate limit statistics for a key
 wp cron-v2 rate-limit-stats email-jobs --max=10 --per=60
 
-# Nollaa rate limit (sallii heti uudet yritykset)
+# Reset rate limit (allows immediate new attempts)
 wp cron-v2 rate-limit-reset email-jobs
 ```
 
-## Kaikki CLI-komennot (38)
+## All CLI Commands (38)
 
-| Komento | Kuvaus |
-|---------|--------|
-| `worker` | Käynnistä worker daemon |
-| `work` | Prosessoi jobit kerran |
-| `run <id>` | Suorita yksittäinen job |
-| `list` | Listaa jobit |
-| `show <id>` | Näytä jobin tiedot |
-| `cancel <id>` | Peruuta job |
-| `stats` | Tilastot |
-| `info` | Yksityiskohtaiset tilastot |
-| `health` | Health check + ongelmat |
-| `retry-failed` | Yritä epäonnistuneet |
-| `flush-failed` | Poista epäonnistuneet |
-| `purge-completed` | Poista valmiit |
-| `release-stale` | Vapauta jumittuneet |
-| `cleanup` | Siivoa vanhat jobit |
-| `schedules` | Listaa schedulet |
-| `pause-schedule` | Pysäytä schedule |
-| `resume-schedule` | Jatka schedulea |
-| `remove-schedule` | Poista schedule |
-| `batches` | Listaa batchit |
-| `batch-show <id>` | Näytä batchin tiedot |
-| `batch-cancel <id>` | Peruuta batch |
-| `chains` | Listaa job chainit |
-| `chain-show <id>` | Näytä chainin tiedot |
-| `chain-delete <id>` | Poista chain |
-| `webhooks` | Listaa webhookit |
-| `webhook-add` | Lisää webhook |
-| `webhook-remove` | Poista webhook |
-| `webhook-test` | Testaa webhook |
-| `webhook-toggle` | Käyttöön/pois käytöstä |
-| `rate-limit-stats` | Näytä rate limit tilastot |
-| `rate-limit-reset` | Nollaa rate limit |
-| `driver` | Näytä driver-tiedot |
-| `redis-test` | Testaa Redis-yhteys |
-| `set-driver <type>` | Vaihda driver |
-| `redis-flush` | Tyhjennä Redis-jonot |
-| `network-stats` | Multisite tilastot |
-| `sites` | Listaa multisite-sivustot |
-| `site-worker <id>` | Worker tietylle sivustolle |
+| Command | Description |
+|---------|-------------|
+| `worker` | Start worker daemon |
+| `work` | Process jobs once |
+| `run <id>` | Run single job |
+| `list` | List jobs |
+| `show <id>` | Show job details |
+| `cancel <id>` | Cancel job |
+| `stats` | Statistics |
+| `info` | Detailed statistics |
+| `health` | Health check + issues |
+| `retry-failed` | Retry failed jobs |
+| `flush-failed` | Delete failed jobs |
+| `purge-completed` | Delete completed jobs |
+| `release-stale` | Release stuck jobs |
+| `cleanup` | Clean up old jobs |
+| `schedules` | List schedules |
+| `pause-schedule` | Pause schedule |
+| `resume-schedule` | Resume schedule |
+| `remove-schedule` | Remove schedule |
+| `batches` | List batches |
+| `batch-show <id>` | Show batch details |
+| `batch-cancel <id>` | Cancel batch |
+| `chains` | List job chains |
+| `chain-show <id>` | Show chain details |
+| `chain-delete <id>` | Delete chain |
+| `webhooks` | List webhooks |
+| `webhook-add` | Add webhook |
+| `webhook-remove` | Remove webhook |
+| `webhook-test` | Test webhook |
+| `webhook-toggle` | Enable/disable |
+| `rate-limit-stats` | Show rate limit stats |
+| `rate-limit-reset` | Reset rate limit |
+| `driver` | Show driver info |
+| `redis-test` | Test Redis connection |
+| `set-driver <type>` | Switch driver |
+| `redis-flush` | Flush Redis queues |
+| `network-stats` | Multisite statistics |
+| `sites` | List multisite sites |
+| `site-worker <id>` | Worker for specific site |
 
 ## Admin UI
 
 **WP Admin → Cron v2**
 
 ### Dashboard
-- Tilastokortit: queued, running, completed, failed
-- Auto-refresh 30s välein
+- Stat cards: queued, running, completed, failed
+- Auto-refresh every 30s
 
-### Jono-näkymä
-- Job-listaus suodattimilla (status, queue)
-- Retry-nappi epäonnistuneille
-- Cancel-nappi jonossa oleville
+### Queue View
+- Job listing with filters (status, queue)
+- Retry button for failed jobs
+- Cancel button for queued jobs
 
-### Asetukset
+### Settings
 - WP-Cron Adapter toggle
-- Oletusjono
-- Maksimi yritykset
+- Default queue
+- Max attempts
 
 ## Timeout & Stale Job Recovery
 
-Jos job jää "running" tilaan (esim. worker kaatui), se vapautetaan automaattisesti:
+If a job gets stuck in "running" state (e.g., worker crashed), it's automatically released:
 
 ```bash
-# Vapauta jobit jotka ovat olleet running > 30 min
+# Release jobs that have been running > 30 min
 wp cron-v2 release-stale --timeout=30
 ```
 
-Toiminta:
-1. Jos yrityksiä jäljellä → palautetaan jonoon retry-logiikalla
-2. Jos max_attempts täynnä → merkitään failed
+Behavior:
+1. If attempts remaining → returned to queue with retry logic
+2. If max_attempts reached → marked as failed
 
-## Retry-logiikka
+## Retry Logic
 
-Exponential backoff kun job epäonnistuu:
+Exponential backoff when job fails:
 
-| Yritys | Viive | Kaava |
-|--------|-------|-------|
+| Attempt | Delay | Formula |
+|---------|-------|---------|
 | 1 | 2 min | 2¹ × 60s |
 | 2 | 4 min | 2² × 60s |
 | 3 | 8 min | 2³ × 60s |
 | max_attempts | → failed | |
 
-## Hookit
+## Hooks
 
 ```php
-// Job lisätty jonoon
+// Job added to queue
 add_action( 'wp_cron_v2_job_queued', function( $job_id, $job ) {
     // ...
 }, 10, 2 );
 
-// Job suoritettu onnistuneesti
+// Job executed successfully
 add_action( 'wp_cron_v2_job_completed', function( $job_id, $job ) {
     // ...
 }, 10, 2 );
 
-// Job epäonnistui lopullisesti
+// Job failed permanently
 add_action( 'wp_cron_v2_job_failed', function( $job_id, $exception ) {
-    // Lähetä alert, logita...
+    // Send alert, log...
 }, 10, 2 );
 
-// Job yritetään uudelleen
+// Job being retried
 add_action( 'wp_cron_v2_job_retrying', function( $job_id, $attempts, $exception ) {
     // ...
 }, 10, 3 );
 
 // Job timeout (stale)
 add_action( 'wp_cron_v2_job_timeout', function( $job_id, $action ) {
-    // $action = 'retrying' tai 'failed'
+    // $action = 'retrying' or 'failed'
 }, 10, 2 );
 
-// Vanhat jobit siivottu
+// Old jobs cleaned up
 add_action( 'wp_cron_v2_jobs_cleaned', function( $count ) {
     // ...
 }, 10, 1 );
 
-// Batch lähetetty
+// Batch dispatched
 add_action( 'wp_cron_v2_batch_dispatched', function( $batch_id, $job_count ) {
     // ...
 }, 10, 2 );
 
-// Batch peruutettu
+// Batch cancelled
 add_action( 'wp_cron_v2_batch_cancelled', function( $batch_id, $cancelled_count ) {
     // ...
 }, 10, 2 );
 
-// Chain käynnistetty
+// Chain started
 add_action( 'wp_cron_v2_chain_started', function( $chain_id, $job_count ) {
     // ...
 }, 10, 2 );
 
-// Chain valmistui
+// Chain completed
 add_action( 'wp_cron_v2_chain_completed', function( $chain_id ) {
     // ...
 }, 10, 1 );
 
-// Chain epäonnistui
+// Chain failed
 add_action( 'wp_cron_v2_chain_failed', function( $chain_id, $exception ) {
     // ...
 }, 10, 2 );
 
-// Job rate limited (palautettiin jonoon)
+// Job rate limited (returned to queue)
 add_action( 'wp_cron_v2_job_rate_limited', function( $job_id, $job, $delay ) {
-    // $delay = sekunteja kunnes voi yrittää uudelleen
+    // $delay = seconds until can retry
 }, 10, 3 );
 
-// Webhook lähetetty
+// Webhook sent
 add_action( 'wp_cron_v2_webhook_sent', function( $url, $event, $payload ) {
     // ...
 }, 10, 3 );
 ```
 
-## WP-Cron Yhteensopivuus
+## WP-Cron Compatibility
 
-Ota käyttöön: **Cron v2 → Asetukset → WP-Cron Adapter**
+Enable: **Cron v2 → Settings → WP-Cron Adapter**
 
-Kun adapter on päällä:
+When adapter is enabled:
 
 ```php
-// Nämä ohjautuvat automaattisesti WP Cron v2 jonoon:
+// These are automatically routed to WP Cron v2 queue:
 wp_schedule_event( time(), 'hourly', 'my_hook' );
 wp_schedule_single_event( time() + 3600, 'my_hook' );
 ```
 
-Pluginien ei tarvitse muuttua - adapter hoitaa ohjauksen.
+Plugins don't need to change - the adapter handles routing.
 
-## Tuotantokäyttö
+## Production Usage
 
-### Systemd (suositeltu)
+### Systemd (recommended)
 
 ```ini
 # /etc/systemd/system/wp-cron-v2@.service
@@ -666,7 +666,7 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-# Käynnistä eri jonoille
+# Start for different queues
 systemctl enable wp-cron-v2@default
 systemctl enable wp-cron-v2@emails
 systemctl start wp-cron-v2@default
@@ -688,147 +688,147 @@ process_name=%(program_name)s_%(process_num)02d
 ### Cron + Maintenance
 
 ```bash
-# Crontab - prosessoi jobit
+# Crontab - process jobs
 * * * * * cd /var/www/html && wp cron-v2 work --queue=default --limit=20
 
-# Päivittäin - siivoa vanhat ja vapauta jumit
+# Daily - clean up old and release stuck
 0 3 * * * cd /var/www/html && wp cron-v2 cleanup --days=7 && wp cron-v2 release-stale
 ```
 
-## Tiedostorakenne
+## File Structure
 
 ```
 wp-cron-v2/
-├── wp-cron-v2.php              # Pääplugin + helper-funktiot
-├── uninstall.php               # Poistaa taulut & optiot
+├── wp-cron-v2.php              # Main plugin + helper functions
+├── uninstall.php               # Removes tables & options
 ├── README.md
 ├── .gitignore
 │
 ├── src/
 │   ├── Queue/
-│   │   ├── Manager.php         # Jonojen hallinta
-│   │   ├── Scheduler.php       # Toistuvat tehtävät
+│   │   ├── Manager.php         # Queue management
+│   │   ├── Scheduler.php       # Recurring tasks
 │   │   ├── Batch.php           # Job batching
 │   │   ├── Chain.php           # Job chains
 │   │   ├── RateLimiter.php     # Rate limiting
 │   │   ├── Webhooks.php        # HTTP webhooks
 │   │   └── Drivers/
-│   │       ├── DriverInterface.php   # Driver rajapinta
+│   │       ├── DriverInterface.php   # Driver interface
 │   │       ├── DriverFactory.php     # Driver factory
 │   │       ├── DatabaseDriver.php    # MySQL/SQLite driver
 │   │       └── RedisDriver.php       # Redis driver
 │   │
 │   ├── Jobs/
-│   │   ├── Job.php             # Abstrakti base class
-│   │   └── ExampleJob.php      # Esimerkki
+│   │   ├── Job.php             # Abstract base class
+│   │   └── ExampleJob.php      # Example
 │   │
 │   ├── Adapter/
-│   │   └── WPCronAdapter.php   # WP-Cron yhteensopivuus
+│   │   └── WPCronAdapter.php   # WP-Cron compatibility
 │   │
 │   ├── Api/
 │   │   └── RestController.php  # REST API
 │   │
 │   ├── Multisite/
-│   │   └── NetworkManager.php  # Multisite hallinta
+│   │   └── NetworkManager.php  # Multisite management
 │   │
 │   └── Admin/
-│       └── AdminPage.php       # Hallintapaneeli
+│       └── AdminPage.php       # Admin panel
 │
 ├── includes/
-│   ├── class-activator.php     # Taulujen luonti
+│   ├── class-activator.php     # Table creation
 │   ├── class-deactivator.php
-│   └── class-cli-commands.php  # WP-CLI (38 komentoa)
+│   └── class-cli-commands.php  # WP-CLI (38 commands)
 │
 └── assets/
     ├── css/admin.css
     └── js/admin.js
 ```
 
-## Tietokantarakenne
+## Database Structure
 
 ### wp_job_queue
 
-Pääjono kaikille jobeille.
+Main queue for all jobs.
 
-| Sarake | Tyyppi | Kuvaus |
-|--------|--------|--------|
+| Column | Type | Description |
+|--------|------|-------------|
 | id | bigint | Primary key |
-| job_type | varchar(255) | PHP-luokan nimi |
-| payload | longtext | Serialisoitu job-objekti |
-| queue | varchar(100) | Jonon nimi (default, emails, etc.) |
+| job_type | varchar(255) | PHP class name |
+| payload | longtext | Serialized job object |
+| queue | varchar(100) | Queue name (default, emails, etc.) |
 | priority | varchar(20) | low / normal / high |
-| attempts | tinyint | Yrityskerrat |
-| max_attempts | tinyint | Max yritykset |
-| available_at | datetime | Milloin job on käsiteltävissä |
-| created_at | datetime | Luontiaika |
-| updated_at | datetime | Päivitysaika |
+| attempts | tinyint | Attempt count |
+| max_attempts | tinyint | Max attempts |
+| available_at | datetime | When job is available for processing |
+| created_at | datetime | Created time |
+| updated_at | datetime | Updated time |
 | status | varchar(20) | queued / running / completed / failed |
-| error_message | text | Virheilmoitus (jos failed) |
-| batch_id | varchar(36) | Batch ID (jos osa batchia) |
+| error_message | text | Error message (if failed) |
+| batch_id | varchar(36) | Batch ID (if part of batch) |
 
 ### wp_job_queue_failed
 
-Historia epäonnistuneista jobeista.
+History of failed jobs.
 
-| Sarake | Tyyppi | Kuvaus |
-|--------|--------|--------|
+| Column | Type | Description |
+|--------|------|-------------|
 | id | bigint | Primary key |
-| job_type | varchar(255) | PHP-luokan nimi |
-| payload | longtext | Serialisoitu job-objekti |
-| queue | varchar(100) | Jonon nimi |
-| exception | longtext | Virheviesti |
-| failed_at | datetime | Epäonnistumisaika |
+| job_type | varchar(255) | PHP class name |
+| payload | longtext | Serialized job object |
+| queue | varchar(100) | Queue name |
+| exception | longtext | Error message |
+| failed_at | datetime | Failed time |
 
 ### wp_job_batches
 
-Batchien metatiedot.
+Batch metadata.
 
-| Sarake | Tyyppi | Kuvaus |
-|--------|--------|--------|
+| Column | Type | Description |
+|--------|------|-------------|
 | id | varchar(36) | UUID Primary key |
-| name | varchar(255) | Batchin nimi |
-| total_jobs | int | Jobien kokonaismäärä |
-| pending_jobs | int | Odottavien määrä |
-| failed_jobs | int | Epäonnistuneiden määrä |
-| options | longtext | Callbackit yms. |
-| created_at | datetime | Luontiaika |
-| cancelled_at | datetime | Peruutusaika |
-| finished_at | datetime | Valmistumisaika |
+| name | varchar(255) | Batch name |
+| total_jobs | int | Total job count |
+| pending_jobs | int | Pending count |
+| failed_jobs | int | Failed count |
+| options | longtext | Callbacks etc. |
+| created_at | datetime | Created time |
+| cancelled_at | datetime | Cancelled time |
+| finished_at | datetime | Finished time |
 
 ## API Reference
 
 ### wp_cron_v2()
 
 ```php
-// Dispatch heti
+// Dispatch immediately
 wp_cron_v2()->dispatch( Job $job ): int|false
 
-// Dispatch viiveellä
+// Dispatch with delay
 wp_cron_v2()->later( int $seconds, Job $job ): int|false
 
-// Aseta jono
+// Set queue
 wp_cron_v2()->queue( string $name ): Manager
 
-// Aseta prioriteetti
+// Set priority
 wp_cron_v2()->priority( string $level ): Manager
 
-// Prosessoi seuraava job
+// Process next job
 wp_cron_v2()->process_next_job( string $queue ): bool
 
-// Hae tilastot
+// Get statistics
 wp_cron_v2()->get_stats( string $queue ): array
 
-// Vapauta jumittuneet jobit
+// Release stuck jobs
 wp_cron_v2()->release_stale_jobs( int $timeout_minutes = 30 ): int
 
-// Siivoa vanhat valmiit
+// Clean up old completed jobs
 wp_cron_v2()->cleanup_old_jobs( int $days = 7 ): int
 ```
 
 ### wp_cron_v2_scheduler()
 
 ```php
-// Rekisteröi toistuva tehtävä
+// Register recurring task
 wp_cron_v2_scheduler()->schedule(
     string $name,
     string $interval,
@@ -836,35 +836,35 @@ wp_cron_v2_scheduler()->schedule(
     string $queue = 'default'
 ): bool
 
-// Poista
+// Remove
 wp_cron_v2_scheduler()->unschedule( string $name ): bool
 
-// Pysäytä/Jatka
+// Pause/Resume
 wp_cron_v2_scheduler()->pause( string $name ): bool
 wp_cron_v2_scheduler()->resume( string $name ): bool
 
-// Hae schedulet
+// Get schedules
 wp_cron_v2_scheduler()->get_schedules(): array
 ```
 
 ### wp_cron_v2_batch()
 
 ```php
-// Luo batch useille jobeille
+// Create batch for multiple jobs
 wp_cron_v2_batch( 'import-users' )
     ->add( new ImportUserJob( $user1 ) )
     ->add( new ImportUserJob( $user2 ) )
     ->add( new ImportUserJob( $user3 ) )
     ->onQueue( 'imports' )
     ->then( function( $batch ) {
-        // Callback kun kaikki valmiit
+        // Callback when all complete
     })
     ->catch( function( $batch, $e ) {
-        // Callback kun jokin epäonnistuu
+        // Callback when any fails
     })
     ->dispatch();
 
-// Hae batch tilastot
+// Get batch statistics
 WPCronV2\Queue\Batch::getStats( $batch_id ): array
 WPCronV2\Queue\Batch::isFinished( $batch_id ): bool
 WPCronV2\Queue\Batch::cancel( $batch_id ): int
@@ -873,17 +873,17 @@ WPCronV2\Queue\Batch::cancel( $batch_id ): int
 ### wp_cron_v2_chain()
 
 ```php
-// Suorita jobit peräkkäin (seuraava alkaa kun edellinen valmis)
+// Execute jobs sequentially (next starts when previous completes)
 wp_cron_v2_chain( 'process-order' )
     ->add( new ValidateOrderJob( $order ) )
     ->add( new ProcessPaymentJob( $order ) )
     ->add( new SendConfirmationJob( $order ) )
     ->onQueue( 'orders' )
     ->then( function( $chain ) {
-        // Callback kun ketju valmis
+        // Callback when chain completes
     })
     ->catch( function( $chain, $e ) {
-        // Callback kun jokin vaihe epäonnistuu
+        // Callback when any step fails
     })
     ->dispatch();
 ```
@@ -891,30 +891,30 @@ wp_cron_v2_chain( 'process-order' )
 ### wp_cron_v2_rate_limiter()
 
 ```php
-// Tarkista onko kutsu sallittu
+// Check if call is allowed
 $allowed = wp_cron_v2_rate_limiter()->attempt(
-    'api-calls',     // Avain
-    10,              // Max yritykset
-    60               // Per sekuntia
+    'api-calls',     // Key
+    10,              // Max attempts
+    60               // Per seconds
 );
 
-// Tarkista ilman "kulutusta"
+// Check without "consuming"
 $allowed = wp_cron_v2_rate_limiter()->check( 'api-calls', 10, 60 );
 
-// Kuinka monta jäljellä
+// How many remaining
 $remaining = wp_cron_v2_rate_limiter()->remaining( 'api-calls', 10, 60 );
 
-// Milloin voi yrittää uudelleen
+// When can retry
 $seconds = wp_cron_v2_rate_limiter()->availableIn( 'api-calls', 60 );
 
-// Nollaa rate limit
+// Reset rate limit
 wp_cron_v2_rate_limiter()->clear( 'api-calls' );
 ```
 
 ### wp_cron_v2_webhooks()
 
 ```php
-// Rekisteröi webhook
+// Register webhook
 wp_cron_v2_webhooks()->register(
     string $name,
     string $url,
@@ -922,29 +922,29 @@ wp_cron_v2_webhooks()->register(
     array $options = [ 'secret' => '', 'headers' => [], 'enabled' => true ]
 ): bool
 
-// Poista webhook
+// Unregister webhook
 wp_cron_v2_webhooks()->unregister( string $name ): bool
 
-// Ota käyttöön/pois
+// Enable/disable
 wp_cron_v2_webhooks()->setEnabled( string $name, bool $enabled ): bool
 
-// Hae webhook
+// Get webhook
 wp_cron_v2_webhooks()->get( string $name ): ?array
 
-// Hae kaikki
+// Get all
 wp_cron_v2_webhooks()->getAll(): array
 
-// Lähetä manuaalinen webhook
+// Send manual webhook
 wp_cron_v2_webhooks()->dispatch( string $event, array $payload ): void
 
-// Testaa webhook
+// Test webhook
 wp_cron_v2_webhooks()->test( string $name ): array
 ```
 
 ### REST API
 
 ```bash
-# Endpointit (vaatii manage_options -oikeuden)
+# Endpoints (requires manage_options capability)
 GET  /wp-json/wp-cron-v2/v1/stats
 GET  /wp-json/wp-cron-v2/v1/health
 GET  /wp-json/wp-cron-v2/v1/jobs
@@ -960,7 +960,7 @@ POST /wp-json/wp-cron-v2/v1/actions/flush-failed
 POST /wp-json/wp-cron-v2/v1/actions/release-stale
 ```
 
-## Vaatimukset
+## Requirements
 
 - WordPress 6.0+
 - PHP 8.0+
@@ -971,13 +971,13 @@ POST /wp-json/wp-cron-v2/v1/actions/release-stale
 
 - [x] Job Queue
 - [x] Worker daemon
-- [x] Prioriteetit
+- [x] Priorities
 - [x] Retry + exponential backoff
 - [x] Timeout + stale recovery
 - [x] Scheduled jobs
 - [x] Admin UI
 - [x] WP-Cron adapter
-- [x] WP-CLI (38 komentoa)
+- [x] WP-CLI (38 commands)
 - [x] Health check
 - [x] Cleanup & maintenance
 - [x] Job batching
@@ -986,30 +986,30 @@ POST /wp-json/wp-cron-v2/v1/actions/release-stale
 - [x] Rate limiting
 - [x] Webhooks
 - [x] Job unique/deduplication
-- [x] Redis-driver
-- [x] Multisite-tuki
+- [x] Redis driver
+- [x] Multisite support
 
-**Tulossa:**
+**Coming soon:**
 - [ ] Amazon SQS driver
-- [ ] Horizon-tyylinen dashboard
+- [ ] Horizon-style dashboard
 - [ ] Job metrics & analytics
 
-## Kehitys
+## Development
 
 ```bash
-# Kloonaa
-git clone git@gitlab.com:etuperin99/wp-cron-v2.git
+# Clone
+git clone git@github.com:etuperin99-sys/wp-cron-v2.git
 
-# Symlink WP:hen
+# Symlink to WP
 ln -s /path/to/wp-cron-v2 /path/to/wordpress/wp-content/plugins/wp-cron-v2
 
-# Aktivoi
+# Activate
 wp plugin activate wp-cron-v2
 
-# Testaa
+# Test
 wp cron-v2 health
 ```
 
-## Lisenssi
+## License
 
 GPL-2.0+

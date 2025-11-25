@@ -1,6 +1,6 @@
 <?php
 /**
- * WP-CLI komennot
+ * WP-CLI commands
  *
  * @package WPCronV2\Includes
  */
@@ -11,45 +11,45 @@ use WP_CLI;
 use WP_CLI_Command;
 
 /**
- * WP Cron v2 worker ja jonohallinnan komennot
+ * WP Cron v2 worker and queue management commands
  */
 class CLI_Commands extends WP_CLI_Command {
 
     /**
-     * Käynnistä worker prosessoimaan jonoa
+     * Start worker to process queue
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi
+     * : Queue name
      * ---
      * default: default
      * ---
      *
      * [--sleep=<seconds>]
-     * : Odotusaika sekunteina kun jono on tyhjä
+     * : Sleep time in seconds when queue is empty
      * ---
      * default: 3
      * ---
      *
      * [--max-jobs=<number>]
-     * : Maksimi jobien määrä ennen pysäytystä (0 = rajaton)
+     * : Maximum jobs before stopping (0 = unlimited)
      * ---
      * default: 0
      * ---
      *
      * [--timeout=<seconds>]
-     * : Maksimi ajoaika sekunteina (0 = rajaton)
+     * : Maximum runtime in seconds (0 = unlimited)
      * ---
      * default: 0
      * ---
      *
      * ## EXAMPLES
      *
-     *     # Käynnistä worker oletusjonolle
+     *     # Start worker for default queue
      *     wp cron-v2 worker --queue=default
      *
-     *     # Käynnistä worker WooCommerce-jonolle
+     *     # Start worker for WooCommerce queue
      *     wp cron-v2 worker --queue=woocommerce --sleep=1
      *
      * @param array $args
@@ -65,33 +65,33 @@ class CLI_Commands extends WP_CLI_Command {
         $start_time = time();
         $processed = 0;
 
-        WP_CLI::log( "Worker {$worker_id} käynnistetty jonolle '{$queue}'" );
+        WP_CLI::log( "Worker {$worker_id} started for queue '{$queue}'" );
 
         while ( true ) {
-            // Tarkista timeout
+            // Check timeout
             if ( $timeout > 0 && ( time() - $start_time ) >= $timeout ) {
-                WP_CLI::success( "Timeout saavutettu. Prosessoitu {$processed} jobia." );
+                WP_CLI::success( "Timeout reached. Processed {$processed} jobs." );
                 break;
             }
 
-            // Tarkista max jobs
+            // Check max jobs
             if ( $max_jobs > 0 && $processed >= $max_jobs ) {
-                WP_CLI::success( "Maksimi jobien määrä saavutettu: {$processed}" );
+                WP_CLI::success( "Maximum job count reached: {$processed}" );
                 break;
             }
 
-            // Prosessoi seuraava job
+            // Process next job
             $result = wp_cron_v2()->process_next_job( $queue );
 
             if ( $result ) {
                 $processed++;
-                WP_CLI::log( "Job prosessoitu. Yhteensä: {$processed}" );
+                WP_CLI::log( "Job processed. Total: {$processed}" );
             } else {
-                // Ei jobeja, odota
+                // No jobs, wait
                 sleep( $sleep );
             }
 
-            // Tarkista signaalit (SIGTERM, SIGINT)
+            // Check signals (SIGTERM, SIGINT)
             if ( function_exists( 'pcntl_signal_dispatch' ) ) {
                 pcntl_signal_dispatch();
             }
@@ -99,15 +99,15 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Näytä jonon tilastot
+     * Show queue statistics
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi (tyhjä = kaikki)
+     * : Queue name (empty = all)
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -143,7 +143,7 @@ class CLI_Commands extends WP_CLI_Command {
                 ]
             ];
         } else {
-            // Hae kaikkien jonojen tilastot
+            // Get all queue statistics
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery
             $queues = $wpdb->get_col( "SELECT DISTINCT queue FROM {$table}" );
             $data = [];
@@ -161,7 +161,7 @@ class CLI_Commands extends WP_CLI_Command {
         }
 
         if ( empty( $data ) ) {
-            WP_CLI::log( 'Ei jobeja jonossa.' );
+            WP_CLI::log( 'No jobs in queue.' );
             return;
         }
 
@@ -169,15 +169,15 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Tyhjennä epäonnistuneet jobit
+     * Flush failed jobs
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi (tyhjä = kaikki)
+     * : Queue name (empty = all)
      *
      * [--older-than=<days>]
-     * : Poista vain tätä vanhemmat (päivinä)
+     * : Delete only older than this (in days)
      * ---
      * default: 0
      * ---
@@ -211,19 +211,19 @@ class CLI_Commands extends WP_CLI_Command {
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $count = $wpdb->query( "DELETE FROM {$table} WHERE {$where}" );
 
-        WP_CLI::success( "Poistettu {$count} epäonnistunutta jobia." );
+        WP_CLI::success( "Deleted {$count} failed jobs." );
     }
 
     /**
-     * Yritä epäonnistuneita jobeja uudelleen
+     * Retry failed jobs
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi (tyhjä = kaikki)
+     * : Queue name (empty = all)
      *
      * [--limit=<number>]
-     * : Maksimi määrä
+     * : Maximum count
      * ---
      * default: 100
      * ---
@@ -262,28 +262,28 @@ class CLI_Commands extends WP_CLI_Command {
             )
         );
 
-        WP_CLI::success( "Palautettu {$count} jobia jonoon uudelleenyritystä varten." );
+        WP_CLI::success( "Returned {$count} jobs to queue for retry." );
     }
 
     /**
-     * Listaa jobit jonossa
+     * List jobs in queue
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi (tyhjä = kaikki)
+     * : Queue name (empty = all)
      *
      * [--status=<status>]
-     * : Suodata statuksen mukaan (queued, running, completed, failed)
+     * : Filter by status (queued, running, completed, failed)
      *
      * [--limit=<number>]
-     * : Näytettävien jobien määrä
+     * : Number of jobs to show
      * ---
      * default: 20
      * ---
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -335,11 +335,11 @@ class CLI_Commands extends WP_CLI_Command {
         );
 
         if ( empty( $jobs ) ) {
-            WP_CLI::log( 'Ei jobeja.' );
+            WP_CLI::log( 'No jobs.' );
             return;
         }
 
-        // Lyhennä job_type näyttöä varten
+        // Shorten job_type for display
         foreach ( $jobs as &$job ) {
             $parts = explode( '\\', $job['job_type'] );
             $job['job_type'] = end( $parts );
@@ -350,15 +350,15 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Poista valmiit jobit
+     * Delete completed jobs
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi (tyhjä = kaikki)
+     * : Queue name (empty = all)
      *
      * [--older-than=<days>]
-     * : Poista vain tätä vanhemmat (päivinä)
+     * : Delete only older than this (in days)
      * ---
      * default: 0
      * ---
@@ -393,19 +393,19 @@ class CLI_Commands extends WP_CLI_Command {
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $count = $wpdb->query( "DELETE FROM {$table} WHERE {$where}" );
 
-        WP_CLI::success( "Poistettu {$count} valmista jobia." );
+        WP_CLI::success( "Deleted {$count} completed jobs." );
     }
 
     /**
-     * Näytä yksittäisen jobin tiedot
+     * Show single job details
      *
      * ## OPTIONS
      *
      * <id>
-     * : Jobin ID
+     * : Job ID
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -435,7 +435,7 @@ class CLI_Commands extends WP_CLI_Command {
         );
 
         if ( ! $job ) {
-            WP_CLI::error( "Jobia ID {$id} ei löydy." );
+            WP_CLI::error( "Job ID {$id} not found." );
         }
 
         if ( $format === 'table' ) {
@@ -450,12 +450,12 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Peruuta job jonosta
+     * Cancel job from queue
      *
      * ## OPTIONS
      *
      * <id>...
-     * : Jobin ID(t)
+     * : Job ID(s)
      *
      * ## EXAMPLES
      *
@@ -485,22 +485,22 @@ class CLI_Commands extends WP_CLI_Command {
 
             if ( $result ) {
                 $cancelled++;
-                WP_CLI::log( "Job {$id} peruutettu." );
+                WP_CLI::log( "Job {$id} cancelled." );
             } else {
-                WP_CLI::warning( "Job {$id} ei voitu peruuttaa (ei jonossa tai ei löydy)." );
+                WP_CLI::warning( "Job {$id} could not be cancelled (not in queue or not found)." );
             }
         }
 
-        WP_CLI::success( "Peruutettu {$cancelled} jobia." );
+        WP_CLI::success( "Cancelled {$cancelled} jobs." );
     }
 
     /**
-     * Suorita yksittäinen job heti (ohita jono)
+     * Run single job immediately (bypass queue)
      *
      * ## OPTIONS
      *
      * <id>
-     * : Jobin ID
+     * : Job ID
      *
      * ## EXAMPLES
      *
@@ -522,25 +522,25 @@ class CLI_Commands extends WP_CLI_Command {
         );
 
         if ( ! $job_row ) {
-            WP_CLI::error( "Jobia ID {$id} ei löydy." );
+            WP_CLI::error( "Job ID {$id} not found." );
         }
 
         if ( $job_row['status'] === 'running' ) {
-            WP_CLI::error( "Job {$id} on jo käynnissä." );
+            WP_CLI::error( "Job {$id} is already running." );
         }
 
         if ( $job_row['status'] === 'completed' ) {
-            WP_CLI::error( "Job {$id} on jo suoritettu." );
+            WP_CLI::error( "Job {$id} is already completed." );
         }
 
-        // Merkitse käynnissä
+        // Mark as running
         $wpdb->update(
             $table,
             [ 'status' => 'running', 'updated_at' => current_time( 'mysql', true ) ],
             [ 'id' => $id ]
         );
 
-        WP_CLI::log( "Suoritetaan job {$id}..." );
+        WP_CLI::log( "Running job {$id}..." );
 
         try {
             $job = maybe_unserialize( $job_row['payload'] );
@@ -559,7 +559,7 @@ class CLI_Commands extends WP_CLI_Command {
                 [ 'id' => $id ]
             );
 
-            WP_CLI::success( "Job {$id} suoritettu onnistuneesti ({$duration}ms)." );
+            WP_CLI::success( "Job {$id} executed successfully ({$duration}ms)." );
 
         } catch ( \Throwable $e ) {
             $wpdb->update(
@@ -572,23 +572,23 @@ class CLI_Commands extends WP_CLI_Command {
                 [ 'id' => $id ]
             );
 
-            WP_CLI::error( "Job {$id} epäonnistui: " . $e->getMessage() );
+            WP_CLI::error( "Job {$id} failed: " . $e->getMessage() );
         }
     }
 
     /**
-     * Prosessoi kaikki jonossa olevat jobit kerralla
+     * Process all queued jobs at once
      *
      * ## OPTIONS
      *
      * [--queue=<queue>]
-     * : Jonon nimi
+     * : Queue name
      * ---
      * default: default
      * ---
      *
      * [--limit=<number>]
-     * : Maksimi määrä prosessoitavia jobeja
+     * : Maximum jobs to process
      * ---
      * default: 100
      * ---
@@ -607,13 +607,13 @@ class CLI_Commands extends WP_CLI_Command {
         $processed = 0;
         $failed = 0;
 
-        WP_CLI::log( "Prosessoidaan jonoa '{$queue}'..." );
+        WP_CLI::log( "Processing queue '{$queue}'..." );
 
         while ( $processed < $limit ) {
             $result = wp_cron_v2()->process_next_job( $queue );
 
             if ( $result === false ) {
-                // Ei enää jobeja
+                // No more jobs
                 break;
             }
 
@@ -624,16 +624,16 @@ class CLI_Commands extends WP_CLI_Command {
             }
         }
 
-        WP_CLI::success( "Valmis. Prosessoitu: {$processed}, epäonnistunut: {$failed}" );
+        WP_CLI::success( "Done. Processed: {$processed}, failed: {$failed}" );
     }
 
     /**
-     * Näytä jonon tilastot yksityiskohtaisesti
+     * Show detailed queue statistics
      *
      * ## OPTIONS
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -654,7 +654,7 @@ class CLI_Commands extends WP_CLI_Command {
         $format = $assoc_args['format'] ?? 'table';
         $table = $wpdb->prefix . 'job_queue';
 
-        // Yleistilastot
+        // General statistics
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $total = $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
 
@@ -691,26 +691,26 @@ class CLI_Commands extends WP_CLI_Command {
         }
 
         WP_CLI::log( '' );
-        WP_CLI::log( WP_CLI::colorize( '%GWPC Cron v2 Status%n' ) );
+        WP_CLI::log( WP_CLI::colorize( '%GWP Cron v2 Status%n' ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
-        WP_CLI::log( "Jobeja yhteensä:       {$total}" );
-        WP_CLI::log( "Vanhin jonossa:        " . ( $oldest_queued ?: '-' ) );
-        WP_CLI::log( "Keskim. yrityksiä:     " . ( $avg_attempts ? round( $avg_attempts, 2 ) : '-' ) );
+        WP_CLI::log( "Total jobs:        {$total}" );
+        WP_CLI::log( "Oldest in queue:   " . ( $oldest_queued ?: '-' ) );
+        WP_CLI::log( "Avg attempts:      " . ( $avg_attempts ? round( $avg_attempts, 2 ) : '-' ) );
         WP_CLI::log( '' );
 
         if ( ! empty( $queues ) ) {
-            WP_CLI::log( WP_CLI::colorize( '%YJonot:%n' ) );
+            WP_CLI::log( WP_CLI::colorize( '%YQueues:%n' ) );
             WP_CLI\Utils\format_items( 'table', $queues, [ 'queue', 'total', 'queued', 'running', 'completed', 'failed' ] );
         }
     }
 
     /**
-     * Listaa ajastetut tehtävät
+     * List scheduled tasks
      *
      * ## OPTIONS
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -730,7 +730,7 @@ class CLI_Commands extends WP_CLI_Command {
         $schedules = wp_cron_v2_scheduler()->get_schedules();
 
         if ( empty( $schedules ) ) {
-            WP_CLI::log( 'Ei ajastettuja tehtäviä.' );
+            WP_CLI::log( 'No scheduled tasks.' );
             return;
         }
 
@@ -752,12 +752,12 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Pysäytä ajastettu tehtävä
+     * Pause scheduled task
      *
      * ## OPTIONS
      *
      * <name>
-     * : Schedulen nimi
+     * : Schedule name
      *
      * ## EXAMPLES
      *
@@ -771,19 +771,19 @@ class CLI_Commands extends WP_CLI_Command {
         $name = $args[0];
 
         if ( wp_cron_v2_scheduler()->pause( $name ) ) {
-            WP_CLI::success( "Schedule '{$name}' pysäytetty." );
+            WP_CLI::success( "Schedule '{$name}' paused." );
         } else {
-            WP_CLI::error( "Schedulea '{$name}' ei löydy." );
+            WP_CLI::error( "Schedule '{$name}' not found." );
         }
     }
 
     /**
-     * Jatka pysäytettyä ajastettua tehtävää
+     * Resume paused scheduled task
      *
      * ## OPTIONS
      *
      * <name>
-     * : Schedulen nimi
+     * : Schedule name
      *
      * ## EXAMPLES
      *
@@ -797,19 +797,19 @@ class CLI_Commands extends WP_CLI_Command {
         $name = $args[0];
 
         if ( wp_cron_v2_scheduler()->resume( $name ) ) {
-            WP_CLI::success( "Schedule '{$name}' jatkuu." );
+            WP_CLI::success( "Schedule '{$name}' resumed." );
         } else {
-            WP_CLI::error( "Schedulea '{$name}' ei löydy." );
+            WP_CLI::error( "Schedule '{$name}' not found." );
         }
     }
 
     /**
-     * Poista ajastettu tehtävä
+     * Remove scheduled task
      *
      * ## OPTIONS
      *
      * <name>
-     * : Schedulen nimi
+     * : Schedule name
      *
      * ## EXAMPLES
      *
@@ -823,19 +823,19 @@ class CLI_Commands extends WP_CLI_Command {
         $name = $args[0];
 
         if ( wp_cron_v2_scheduler()->unschedule( $name ) ) {
-            WP_CLI::success( "Schedule '{$name}' poistettu." );
+            WP_CLI::success( "Schedule '{$name}' removed." );
         } else {
-            WP_CLI::error( "Schedulea '{$name}' ei löydy." );
+            WP_CLI::error( "Schedule '{$name}' not found." );
         }
     }
 
     /**
-     * Vapauta jumittuneet jobit (stale/timeout)
+     * Release stuck jobs (stale/timeout)
      *
      * ## OPTIONS
      *
      * [--timeout=<minutes>]
-     * : Kuinka monta minuuttia running-tilassa = timeout
+     * : How many minutes in running state = timeout
      * ---
      * default: 30
      * ---
@@ -855,25 +855,25 @@ class CLI_Commands extends WP_CLI_Command {
         $released = wp_cron_v2()->release_stale_jobs( $timeout );
 
         if ( $released > 0 ) {
-            WP_CLI::success( "Vapautettu {$released} jumittunutta jobia." );
+            WP_CLI::success( "Released {$released} stuck jobs." );
         } else {
-            WP_CLI::log( 'Ei jumittuneita jobeja.' );
+            WP_CLI::log( 'No stuck jobs.' );
         }
     }
 
     /**
-     * Siivoa vanhat valmiit jobit
+     * Clean up old completed jobs
      *
      * ## OPTIONS
      *
      * [--days=<days>]
-     * : Poista tätä vanhemmat (päivinä)
+     * : Delete older than this (in days)
      * ---
      * default: 7
      * ---
      *
      * [--include-failed]
-     * : Poista myös epäonnistuneet
+     * : Also delete failed jobs
      *
      * ## EXAMPLES
      *
@@ -891,7 +891,7 @@ class CLI_Commands extends WP_CLI_Command {
         $include_failed = isset( $assoc_args['include-failed'] );
         $table = $wpdb->prefix . 'job_queue';
 
-        // Poista valmiit
+        // Delete completed
         $deleted_completed = wp_cron_v2()->cleanup_old_jobs( $days );
 
         $deleted_failed = 0;
@@ -911,11 +911,11 @@ class CLI_Commands extends WP_CLI_Command {
 
         $total = $deleted_completed + $deleted_failed;
 
-        WP_CLI::success( "Siivottu {$total} jobia (completed: {$deleted_completed}, failed: {$deleted_failed})." );
+        WP_CLI::success( "Cleaned up {$total} jobs (completed: {$deleted_completed}, failed: {$deleted_failed})." );
     }
 
     /**
-     * Näytä jonon health status
+     * Show queue health status
      *
      * ## EXAMPLES
      *
@@ -929,7 +929,7 @@ class CLI_Commands extends WP_CLI_Command {
 
         $table = $wpdb->prefix . 'job_queue';
 
-        // Tilastot
+        // Statistics
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $stats = $wpdb->get_row(
             "SELECT
@@ -941,7 +941,7 @@ class CLI_Commands extends WP_CLI_Command {
             FROM {$table}"
         );
 
-        // Vanhin jonossa (SQLite-yhteensopiva)
+        // Oldest in queue (SQLite compatible)
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $oldest_date = $wpdb->get_var(
             "SELECT created_at
@@ -959,59 +959,59 @@ class CLI_Commands extends WP_CLI_Command {
         $issues = [];
 
         if ( (int) $stats->stale > 0 ) {
-            $issues[] = WP_CLI::colorize( "%R{$stats->stale} jumittunutta jobia%n" );
+            $issues[] = WP_CLI::colorize( "%R{$stats->stale} stuck jobs%n" );
         }
 
         if ( (int) $stats->failed > 10 ) {
-            $issues[] = WP_CLI::colorize( "%Y{$stats->failed} epäonnistunutta jobia%n" );
+            $issues[] = WP_CLI::colorize( "%Y{$stats->failed} failed jobs%n" );
         }
 
         if ( $oldest && (int) $oldest > 60 ) {
-            $issues[] = WP_CLI::colorize( "%YVanhin job jonossa {$oldest} min%n" );
+            $issues[] = WP_CLI::colorize( "%YOldest job in queue {$oldest} min%n" );
         }
 
         WP_CLI::log( '' );
         WP_CLI::log( WP_CLI::colorize( '%GWP Cron v2 Health Check%n' ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
-        WP_CLI::log( "Jonossa:        {$stats->queued}" );
-        WP_CLI::log( "Käynnissä:      {$stats->running}" );
-        WP_CLI::log( "Epäonnistuneet: {$stats->failed}" );
-        WP_CLI::log( "Jumittuneet:    {$stats->stale}" );
+        WP_CLI::log( "Queued:     {$stats->queued}" );
+        WP_CLI::log( "Running:    {$stats->running}" );
+        WP_CLI::log( "Failed:     {$stats->failed}" );
+        WP_CLI::log( "Stuck:      {$stats->stale}" );
 
         if ( $oldest ) {
-            WP_CLI::log( "Vanhin jonossa: {$oldest} min" );
+            WP_CLI::log( "Oldest:     {$oldest} min" );
         }
 
         WP_CLI::log( '' );
 
         if ( empty( $issues ) ) {
-            WP_CLI::success( 'Kaikki OK!' );
+            WP_CLI::success( 'All OK!' );
         } else {
-            WP_CLI::log( WP_CLI::colorize( '%ROngelmat:%n' ) );
+            WP_CLI::log( WP_CLI::colorize( '%RIssues:%n' ) );
             foreach ( $issues as $issue ) {
                 WP_CLI::log( "  - {$issue}" );
             }
             WP_CLI::log( '' );
-            WP_CLI::log( 'Korjausehdotukset:' );
-            WP_CLI::log( '  wp cron-v2 release-stale    # Vapauta jumittuneet' );
-            WP_CLI::log( '  wp cron-v2 retry-failed     # Yritä epäonnistuneet' );
-            WP_CLI::log( '  wp cron-v2 worker           # Käynnistä worker' );
+            WP_CLI::log( 'Suggestions:' );
+            WP_CLI::log( '  wp cron-v2 release-stale    # Release stuck jobs' );
+            WP_CLI::log( '  wp cron-v2 retry-failed     # Retry failed jobs' );
+            WP_CLI::log( '  wp cron-v2 worker           # Start worker' );
         }
     }
 
     /**
-     * Listaa batchit
+     * List batches
      *
      * ## OPTIONS
      *
      * [--limit=<number>]
-     * : Näytettävien batchien määrä
+     * : Number of batches to show
      * ---
      * default: 20
      * ---
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -1033,7 +1033,7 @@ class CLI_Commands extends WP_CLI_Command {
         $batches = \WPCronV2\Queue\Batch::all( $limit );
 
         if ( empty( $batches ) ) {
-            WP_CLI::log( 'Ei batcheja.' );
+            WP_CLI::log( 'No batches.' );
             return;
         }
 
@@ -1055,12 +1055,12 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Näytä batchin tiedot
+     * Show batch details
      *
      * ## OPTIONS
      *
      * <id>
-     * : Batch ID (tai alku siitä)
+     * : Batch ID (or beginning of it)
      *
      * ## EXAMPLES
      *
@@ -1076,7 +1076,7 @@ class CLI_Commands extends WP_CLI_Command {
         $id = $args[0];
         $table = $wpdb->prefix . 'job_batches';
 
-        // Etsi batch (osittaisella ID:llä)
+        // Find batch (with partial ID)
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $batch = $wpdb->get_row(
             $wpdb->prepare(
@@ -1087,7 +1087,7 @@ class CLI_Commands extends WP_CLI_Command {
         );
 
         if ( ! $batch ) {
-            WP_CLI::error( "Batchia '{$id}' ei löydy." );
+            WP_CLI::error( "Batch '{$id}' not found." );
         }
 
         $stats = \WPCronV2\Queue\Batch::getStats( $batch['id'] );
@@ -1096,25 +1096,25 @@ class CLI_Commands extends WP_CLI_Command {
         WP_CLI::log( WP_CLI::colorize( '%GBatch: ' . $batch['name'] . '%n' ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
         WP_CLI::log( "ID:         {$batch['id']}" );
-        WP_CLI::log( "Luotu:      {$batch['created_at']}" );
-        WP_CLI::log( "Valmistunut: " . ( $batch['finished_at'] ?: '-' ) );
+        WP_CLI::log( "Created:    {$batch['created_at']}" );
+        WP_CLI::log( "Finished:   " . ( $batch['finished_at'] ?: '-' ) );
         WP_CLI::log( '' );
-        WP_CLI::log( WP_CLI::colorize( '%YTilastot:%n' ) );
-        WP_CLI::log( "Yhteensä:     {$stats['total']}" );
-        WP_CLI::log( "Jonossa:      {$stats['queued']}" );
-        WP_CLI::log( "Käynnissä:    {$stats['running']}" );
-        WP_CLI::log( "Valmiita:     {$stats['completed']}" );
-        WP_CLI::log( "Epäonnist.:   {$stats['failed']}" );
-        WP_CLI::log( "Edistyminen:  {$stats['progress']}%" );
+        WP_CLI::log( WP_CLI::colorize( '%YStatistics:%n' ) );
+        WP_CLI::log( "Total:      {$stats['total']}" );
+        WP_CLI::log( "Queued:     {$stats['queued']}" );
+        WP_CLI::log( "Running:    {$stats['running']}" );
+        WP_CLI::log( "Completed:  {$stats['completed']}" );
+        WP_CLI::log( "Failed:     {$stats['failed']}" );
+        WP_CLI::log( "Progress:   {$stats['progress']}%" );
     }
 
     /**
-     * Peruuta batch
+     * Cancel batch
      *
      * ## OPTIONS
      *
      * <id>
-     * : Batch ID (tai alku siitä)
+     * : Batch ID (or beginning of it)
      *
      * ## EXAMPLES
      *
@@ -1130,7 +1130,7 @@ class CLI_Commands extends WP_CLI_Command {
         $id = $args[0];
         $table = $wpdb->prefix . 'job_batches';
 
-        // Etsi batch
+        // Find batch
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $batch = $wpdb->get_row(
             $wpdb->prepare(
@@ -1140,27 +1140,27 @@ class CLI_Commands extends WP_CLI_Command {
         );
 
         if ( ! $batch ) {
-            WP_CLI::error( "Batchia '{$id}' ei löydy." );
+            WP_CLI::error( "Batch '{$id}' not found." );
         }
 
         $cancelled = \WPCronV2\Queue\Batch::cancel( $batch->id );
 
-        WP_CLI::success( "Peruutettu {$cancelled} jobia batchista." );
+        WP_CLI::success( "Cancelled {$cancelled} jobs from batch." );
     }
 
     /**
-     * Listaa job chainit
+     * List job chains
      *
      * ## OPTIONS
      *
      * [--limit=<number>]
-     * : Näytettävien chainien määrä
+     * : Number of chains to show
      * ---
      * default: 20
      * ---
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -1181,7 +1181,7 @@ class CLI_Commands extends WP_CLI_Command {
         $chains = \WPCronV2\Queue\Chain::all();
 
         if ( empty( $chains ) ) {
-            WP_CLI::log( 'Ei job chaineja.' );
+            WP_CLI::log( 'No job chains.' );
             return;
         }
 
@@ -1201,12 +1201,12 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Näytä chainin tiedot
+     * Show chain details
      *
      * ## OPTIONS
      *
      * <id>
-     * : Chain ID (tai alku siitä)
+     * : Chain ID (or beginning of it)
      *
      * ## EXAMPLES
      *
@@ -1219,7 +1219,7 @@ class CLI_Commands extends WP_CLI_Command {
     public function chain_show( $args, $assoc_args ) {
         $id = $args[0];
 
-        // Etsi chain
+        // Find chain
         $chains = \WPCronV2\Queue\Chain::all();
         $chain = null;
 
@@ -1231,19 +1231,19 @@ class CLI_Commands extends WP_CLI_Command {
         }
 
         if ( ! $chain ) {
-            WP_CLI::error( "Chainia '{$id}' ei löydy." );
+            WP_CLI::error( "Chain '{$id}' not found." );
         }
 
         WP_CLI::log( '' );
         WP_CLI::log( WP_CLI::colorize( '%GChain: ' . $chain['name'] . '%n' ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
-        WP_CLI::log( "ID:           {$chain['id']}" );
-        WP_CLI::log( "Status:       {$chain['status']}" );
-        WP_CLI::log( "Jono:         {$chain['queue']}" );
-        WP_CLI::log( "Luotu:        {$chain['created_at']}" );
-        WP_CLI::log( "Valmistunut:  " . ( $chain['finished_at'] ?? '-' ) );
+        WP_CLI::log( "ID:         {$chain['id']}" );
+        WP_CLI::log( "Status:     {$chain['status']}" );
+        WP_CLI::log( "Queue:      {$chain['queue']}" );
+        WP_CLI::log( "Created:    {$chain['created_at']}" );
+        WP_CLI::log( "Finished:   " . ( $chain['finished_at'] ?? '-' ) );
         WP_CLI::log( '' );
-        WP_CLI::log( WP_CLI::colorize( '%YJobit (' . $chain['total_jobs'] . '):%n' ) );
+        WP_CLI::log( WP_CLI::colorize( '%YJobs (' . $chain['total_jobs'] . '):%n' ) );
 
         foreach ( $chain['jobs'] as $index => $job_data ) {
             $parts = explode( '\\', $job_data['class'] );
@@ -1263,17 +1263,17 @@ class CLI_Commands extends WP_CLI_Command {
 
         if ( ! empty( $chain['error'] ) ) {
             WP_CLI::log( '' );
-            WP_CLI::log( WP_CLI::colorize( '%RVirhe:%n ' . $chain['error'] ) );
+            WP_CLI::log( WP_CLI::colorize( '%RError:%n ' . $chain['error'] ) );
         }
     }
 
     /**
-     * Poista chain
+     * Delete chain
      *
      * ## OPTIONS
      *
      * <id>
-     * : Chain ID (tai alku siitä)
+     * : Chain ID (or beginning of it)
      *
      * ## EXAMPLES
      *
@@ -1286,7 +1286,7 @@ class CLI_Commands extends WP_CLI_Command {
     public function chain_delete( $args, $assoc_args ) {
         $id = $args[0];
 
-        // Etsi chain
+        // Find chain
         $chains = \WPCronV2\Queue\Chain::all();
         $chain_id = null;
 
@@ -1298,23 +1298,23 @@ class CLI_Commands extends WP_CLI_Command {
         }
 
         if ( ! $chain_id ) {
-            WP_CLI::error( "Chainia '{$id}' ei löydy." );
+            WP_CLI::error( "Chain '{$id}' not found." );
         }
 
         if ( \WPCronV2\Queue\Chain::delete( $chain_id ) ) {
-            WP_CLI::success( "Chain poistettu." );
+            WP_CLI::success( "Chain deleted." );
         } else {
-            WP_CLI::error( "Chain poisto epäonnistui." );
+            WP_CLI::error( "Chain deletion failed." );
         }
     }
 
     /**
-     * Listaa webhookit
+     * List webhooks
      *
      * ## OPTIONS
      *
      * [--format=<format>]
-     * : Tulostusmuoto
+     * : Output format
      * ---
      * default: table
      * options:
@@ -1334,7 +1334,7 @@ class CLI_Commands extends WP_CLI_Command {
         $webhooks = wp_cron_v2_webhooks()->getAll();
 
         if ( empty( $webhooks ) ) {
-            WP_CLI::log( 'Ei webhookeja.' );
+            WP_CLI::log( 'No webhooks.' );
             return;
         }
 
@@ -1352,24 +1352,24 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Lisää webhook
+     * Add webhook
      *
      * ## OPTIONS
      *
      * <name>
-     * : Webhookin nimi
+     * : Webhook name
      *
      * <url>
-     * : Kohde-URL
+     * : Target URL
      *
      * [--events=<events>]
-     * : Tapahtumat pilkulla erotettuna (oletus: job.completed,job.failed)
+     * : Events comma separated (default: job.completed,job.failed)
      * ---
      * default: job.completed,job.failed
      * ---
      *
      * [--secret=<secret>]
-     * : HMAC secret allekirjoitusta varten
+     * : HMAC secret for signature
      *
      * ## EXAMPLES
      *
@@ -1387,19 +1387,19 @@ class CLI_Commands extends WP_CLI_Command {
         $secret = $assoc_args['secret'] ?? '';
 
         if ( wp_cron_v2_webhooks()->register( $name, $url, $events, [ 'secret' => $secret ] ) ) {
-            WP_CLI::success( "Webhook '{$name}' lisätty." );
+            WP_CLI::success( "Webhook '{$name}' added." );
         } else {
-            WP_CLI::error( "Webhook lisäys epäonnistui." );
+            WP_CLI::error( "Failed to add webhook." );
         }
     }
 
     /**
-     * Poista webhook
+     * Remove webhook
      *
      * ## OPTIONS
      *
      * <name>
-     * : Webhookin nimi
+     * : Webhook name
      *
      * ## EXAMPLES
      *
@@ -1413,19 +1413,19 @@ class CLI_Commands extends WP_CLI_Command {
         $name = $args[0];
 
         if ( wp_cron_v2_webhooks()->unregister( $name ) ) {
-            WP_CLI::success( "Webhook '{$name}' poistettu." );
+            WP_CLI::success( "Webhook '{$name}' removed." );
         } else {
-            WP_CLI::error( "Webhookia '{$name}' ei löydy." );
+            WP_CLI::error( "Webhook '{$name}' not found." );
         }
     }
 
     /**
-     * Testaa webhookia
+     * Test webhook
      *
      * ## OPTIONS
      *
      * <name>
-     * : Webhookin nimi
+     * : Webhook name
      *
      * ## EXAMPLES
      *
@@ -1438,30 +1438,30 @@ class CLI_Commands extends WP_CLI_Command {
     public function webhook_test( $args, $assoc_args ) {
         $name = $args[0];
 
-        WP_CLI::log( "Testataan webhookia '{$name}'..." );
+        WP_CLI::log( "Testing webhook '{$name}'..." );
 
         $result = wp_cron_v2_webhooks()->test( $name );
 
         if ( $result['success'] ) {
-            WP_CLI::success( "Webhook vastasi: HTTP {$result['status_code']}" );
+            WP_CLI::success( "Webhook responded: HTTP {$result['status_code']}" );
             if ( ! empty( $result['body'] ) ) {
                 WP_CLI::log( "Response: " . substr( $result['body'], 0, 200 ) );
             }
         } else {
-            WP_CLI::error( "Webhook testi epäonnistui: " . $result['error'] );
+            WP_CLI::error( "Webhook test failed: " . $result['error'] );
         }
     }
 
     /**
-     * Ota webhook käyttöön/pois
+     * Enable/disable webhook
      *
      * ## OPTIONS
      *
      * <name>
-     * : Webhookin nimi
+     * : Webhook name
      *
      * <status>
-     * : on tai off
+     * : on or off
      *
      * ## EXAMPLES
      *
@@ -1477,29 +1477,29 @@ class CLI_Commands extends WP_CLI_Command {
         $enabled = strtolower( $args[1] ) === 'on';
 
         if ( wp_cron_v2_webhooks()->setEnabled( $name, $enabled ) ) {
-            $status = $enabled ? 'käytössä' : 'pois käytöstä';
-            WP_CLI::success( "Webhook '{$name}' nyt {$status}." );
+            $status = $enabled ? 'enabled' : 'disabled';
+            WP_CLI::success( "Webhook '{$name}' is now {$status}." );
         } else {
-            WP_CLI::error( "Webhookia '{$name}' ei löydy." );
+            WP_CLI::error( "Webhook '{$name}' not found." );
         }
     }
 
     /**
-     * Näytä rate limit tilastot
+     * Show rate limit statistics
      *
      * ## OPTIONS
      *
      * <key>
-     * : Rate limit avain (esim. "job_type:MyJob" tai "queue:emails")
+     * : Rate limit key (e.g. "job_type:MyJob" or "queue:emails")
      *
      * [--max=<max>]
-     * : Maksimi (oletus: 60)
+     * : Maximum (default: 60)
      * ---
      * default: 60
      * ---
      *
      * [--per=<seconds>]
-     * : Aikaikkuna sekunteina (oletus: 60)
+     * : Time window in seconds (default: 60)
      * ---
      * default: 60
      * ---
@@ -1522,19 +1522,19 @@ class CLI_Commands extends WP_CLI_Command {
         WP_CLI::log( '' );
         WP_CLI::log( WP_CLI::colorize( '%GRate Limit: ' . $key . '%n' ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
-        WP_CLI::log( "Käytetty:     {$stats['used']} / {$stats['max']}" );
-        WP_CLI::log( "Jäljellä:     {$stats['remaining']}" );
-        WP_CLI::log( "Nollautuu:    {$stats['resets_in']}s" );
-        WP_CLI::log( "Aikaikkuna:   {$stats['window_seconds']}s" );
+        WP_CLI::log( "Used:       {$stats['used']} / {$stats['max']}" );
+        WP_CLI::log( "Remaining:  {$stats['remaining']}" );
+        WP_CLI::log( "Resets in:  {$stats['resets_in']}s" );
+        WP_CLI::log( "Window:     {$stats['window_seconds']}s" );
     }
 
     /**
-     * Nollaa rate limit
+     * Reset rate limit
      *
      * ## OPTIONS
      *
      * <key>
-     * : Rate limit avain
+     * : Rate limit key
      *
      * ## EXAMPLES
      *
@@ -1548,14 +1548,14 @@ class CLI_Commands extends WP_CLI_Command {
         $key = $args[0];
 
         if ( wp_cron_v2_rate_limiter()->reset( $key ) ) {
-            WP_CLI::success( "Rate limit '{$key}' nollattu." );
+            WP_CLI::success( "Rate limit '{$key}' reset." );
         } else {
-            WP_CLI::log( "Rate limittiä ei ollut asetettu." );
+            WP_CLI::log( "Rate limit was not set." );
         }
     }
 
     /**
-     * Näytä driver-tiedot
+     * Show driver info
      *
      * ## EXAMPLES
      *
@@ -1569,7 +1569,7 @@ class CLI_Commands extends WP_CLI_Command {
         $driver = $manager->getDriver();
         $driver_class = get_class( $driver );
 
-        // Muodosta lyhyt nimi
+        // Format short name
         $driver_name = match ( true ) {
             str_contains( $driver_class, 'RedisDriver' ) => 'Redis',
             str_contains( $driver_class, 'DatabaseDriver' ) => 'Database',
@@ -1578,11 +1578,11 @@ class CLI_Commands extends WP_CLI_Command {
 
         WP_CLI::log( WP_CLI::colorize( "%GQueue Driver%n" ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
-        WP_CLI::log( "Driver:       {$driver_name}" );
-        WP_CLI::log( "Luokka:       {$driver_class}" );
-        WP_CLI::log( "Yhteys:       " . ( $driver->isConnected() ? 'OK' : 'VIRHE' ) );
+        WP_CLI::log( "Driver:     {$driver_name}" );
+        WP_CLI::log( "Class:      {$driver_class}" );
+        WP_CLI::log( "Connection: " . ( $driver->isConnected() ? 'OK' : 'ERROR' ) );
 
-        // Redis-spesifiset tiedot
+        // Redis-specific info
         if ( $driver_name === 'Redis' && method_exists( $driver, 'getRedis' ) ) {
             $redis = $driver->getRedis();
             if ( $redis ) {
@@ -1591,19 +1591,19 @@ class CLI_Commands extends WP_CLI_Command {
                     WP_CLI::log( '' );
                     WP_CLI::log( WP_CLI::colorize( "%GRedis Info%n" ) );
                     WP_CLI::log( str_repeat( '─', 40 ) );
-                    WP_CLI::log( "Versio:       " . ( $info['redis_version'] ?? 'N/A' ) );
-                    WP_CLI::log( "Muisti:       " . ( $info['used_memory_human'] ?? 'N/A' ) );
-                    WP_CLI::log( "Clients:      " . ( $info['connected_clients'] ?? 'N/A' ) );
-                    WP_CLI::log( "Keys:         " . ( $info['db0'] ?? 'N/A' ) );
+                    WP_CLI::log( "Version:    " . ( $info['redis_version'] ?? 'N/A' ) );
+                    WP_CLI::log( "Memory:     " . ( $info['used_memory_human'] ?? 'N/A' ) );
+                    WP_CLI::log( "Clients:    " . ( $info['connected_clients'] ?? 'N/A' ) );
+                    WP_CLI::log( "Keys:       " . ( $info['db0'] ?? 'N/A' ) );
                 } catch ( \Exception $e ) {
-                    WP_CLI::warning( "Redis info haku epäonnistui: " . $e->getMessage() );
+                    WP_CLI::warning( "Redis info fetch failed: " . $e->getMessage() );
                 }
             }
         }
 
-        // Näytä tuetut driverit
+        // Show supported drivers
         WP_CLI::log( '' );
-        WP_CLI::log( WP_CLI::colorize( "%GTuetut Driverit%n" ) );
+        WP_CLI::log( WP_CLI::colorize( "%GSupported Drivers%n" ) );
         WP_CLI::log( str_repeat( '─', 40 ) );
 
         $drivers = \WPCronV2\Queue\Drivers\DriverFactory::getSupportedDrivers();
@@ -1614,7 +1614,7 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Testaa Redis-yhteys
+     * Test Redis connection
      *
      * ## OPTIONS
      *
@@ -1631,10 +1631,10 @@ class CLI_Commands extends WP_CLI_Command {
      * ---
      *
      * [--password=<password>]
-     * : Redis salasana
+     * : Redis password
      *
      * [--database=<database>]
-     * : Redis database numero
+     * : Redis database number
      * ---
      * default: 0
      * ---
@@ -1650,7 +1650,7 @@ class CLI_Commands extends WP_CLI_Command {
      */
     public function redis_test( $args, $assoc_args ) {
         if ( ! \WPCronV2\Queue\Drivers\DriverFactory::isRedisAvailable() ) {
-            WP_CLI::error( 'PHP Redis extension ei ole asennettu.' );
+            WP_CLI::error( 'PHP Redis extension is not installed.' );
             return;
         }
 
@@ -1669,7 +1669,7 @@ class CLI_Commands extends WP_CLI_Command {
             $config['database'] = (int) $assoc_args['database'];
         }
 
-        WP_CLI::log( 'Testataan Redis-yhteyttä...' );
+        WP_CLI::log( 'Testing Redis connection...' );
 
         $result = \WPCronV2\Queue\Drivers\DriverFactory::testRedisConnection( $config );
 
@@ -1681,15 +1681,15 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Vaihda queue driver
+     * Switch queue driver
      *
      * ## OPTIONS
      *
      * <driver>
-     * : Driver tyyppi (database, redis)
+     * : Driver type (database, redis)
      *
      * [--save]
-     * : Tallenna asetus pysyvästi
+     * : Save setting permanently
      *
      * ## EXAMPLES
      *
@@ -1707,21 +1707,21 @@ class CLI_Commands extends WP_CLI_Command {
         $supported = [ 'database', 'redis' ];
 
         if ( ! in_array( $driver, $supported, true ) ) {
-            WP_CLI::error( "Tuntematon driver: {$driver}. Tuetut: " . implode( ', ', $supported ) );
+            WP_CLI::error( "Unknown driver: {$driver}. Supported: " . implode( ', ', $supported ) );
             return;
         }
 
         if ( $driver === 'redis' && ! \WPCronV2\Queue\Drivers\DriverFactory::isRedisAvailable() ) {
-            WP_CLI::error( 'PHP Redis extension ei ole asennettu.' );
+            WP_CLI::error( 'PHP Redis extension is not installed.' );
             return;
         }
 
         try {
             if ( $driver === 'redis' ) {
-                // Testaa yhteys ensin
+                // Test connection first
                 $result = \WPCronV2\Queue\Drivers\DriverFactory::testRedisConnection();
                 if ( ! $result['success'] ) {
-                    WP_CLI::error( 'Redis-yhteys epäonnistui: ' . $result['message'] );
+                    WP_CLI::error( 'Redis connection failed: ' . $result['message'] );
                     return;
                 }
             }
@@ -1730,24 +1730,24 @@ class CLI_Commands extends WP_CLI_Command {
                 $settings = get_option( 'wp_cron_v2_settings', [] );
                 $settings['driver'] = $driver;
                 update_option( 'wp_cron_v2_settings', $settings );
-                WP_CLI::success( "Driver '{$driver}' asetettu ja tallennettu." );
+                WP_CLI::success( "Driver '{$driver}' set and saved." );
             } else {
-                WP_CLI::success( "Driver '{$driver}' asetettu tälle sessiolle." );
-                WP_CLI::log( "Käytä --save tallentaaksesi pysyvästi." );
+                WP_CLI::success( "Driver '{$driver}' set for this session." );
+                WP_CLI::log( "Use --save to save permanently." );
             }
 
         } catch ( \Exception $e ) {
-            WP_CLI::error( 'Virhe: ' . $e->getMessage() );
+            WP_CLI::error( 'Error: ' . $e->getMessage() );
         }
     }
 
     /**
-     * Tyhjennä Redis-jonot (varoitus: poistaa kaikki jobit!)
+     * Flush Redis queues (warning: removes all jobs!)
      *
      * ## OPTIONS
      *
      * [--yes]
-     * : Ohita varmistus
+     * : Skip confirmation
      *
      * ## EXAMPLES
      *
@@ -1761,26 +1761,26 @@ class CLI_Commands extends WP_CLI_Command {
         $driver = wp_cron_v2()->getDriver();
 
         if ( ! $driver instanceof \WPCronV2\Queue\Drivers\RedisDriver ) {
-            WP_CLI::error( 'Tämä komento toimii vain Redis-driverilla.' );
+            WP_CLI::error( 'This command only works with Redis driver.' );
             return;
         }
 
-        WP_CLI::confirm( 'Tämä poistaa KAIKKI jobit Redistä. Oletko varma?', $assoc_args );
+        WP_CLI::confirm( 'This will remove ALL jobs from Redis. Are you sure?', $assoc_args );
 
         if ( $driver->flush() ) {
-            WP_CLI::success( 'Redis-jonot tyhjennetty.' );
+            WP_CLI::success( 'Redis queues flushed.' );
         } else {
-            WP_CLI::error( 'Tyhjennys epäonnistui.' );
+            WP_CLI::error( 'Flush failed.' );
         }
     }
 
     /**
-     * Näytä multisite-tilastot
+     * Show multisite statistics
      *
      * ## OPTIONS
      *
      * [--format=<format>]
-     * : Tulostusmuoto (table, json, csv)
+     * : Output format (table, json, csv)
      * ---
      * default: table
      * ---
@@ -1798,14 +1798,14 @@ class CLI_Commands extends WP_CLI_Command {
         $network = wp_cron_v2_network();
 
         if ( ! $network->isMultisite() ) {
-            WP_CLI::error( 'Tämä komento toimii vain multisite-ympäristössä.' );
+            WP_CLI::error( 'This command only works in multisite environment.' );
             return;
         }
 
         $stats = $network->getNetworkStats();
 
         if ( empty( $stats ) ) {
-            WP_CLI::log( 'Ei jobeja.' );
+            WP_CLI::log( 'No jobs.' );
             return;
         }
 
@@ -1827,12 +1827,12 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Listaa multisite-sivustot
+     * List multisite sites
      *
      * ## OPTIONS
      *
      * [--format=<format>]
-     * : Tulostusmuoto (table, json, csv)
+     * : Output format (table, json, csv)
      * ---
      * default: table
      * ---
@@ -1848,14 +1848,14 @@ class CLI_Commands extends WP_CLI_Command {
         $network = wp_cron_v2_network();
 
         if ( ! $network->isMultisite() ) {
-            WP_CLI::error( 'Tämä komento toimii vain multisite-ympäristössä.' );
+            WP_CLI::error( 'This command only works in multisite environment.' );
             return;
         }
 
         $site_ids = $network->getSites();
 
         if ( empty( $site_ids ) ) {
-            WP_CLI::log( 'Ei sivustoja.' );
+            WP_CLI::log( 'No sites.' );
             return;
         }
 
@@ -1884,21 +1884,21 @@ class CLI_Commands extends WP_CLI_Command {
     }
 
     /**
-     * Käynnistä worker tietylle sivustolle
+     * Start worker for specific site
      *
      * ## OPTIONS
      *
      * <site_id>
-     * : Sivuston ID
+     * : Site ID
      *
      * [--queue=<queue>]
-     * : Jonon nimi
+     * : Queue name
      * ---
      * default: default
      * ---
      *
      * [--sleep=<seconds>]
-     * : Odotusaika sekunteina kun jono on tyhjä
+     * : Sleep time in seconds when queue is empty
      * ---
      * default: 3
      * ---
@@ -1915,7 +1915,7 @@ class CLI_Commands extends WP_CLI_Command {
         $network = wp_cron_v2_network();
 
         if ( ! $network->isMultisite() ) {
-            WP_CLI::error( 'Tämä komento toimii vain multisite-ympäristössä.' );
+            WP_CLI::error( 'This command only works in multisite environment.' );
             return;
         }
 
@@ -1923,16 +1923,16 @@ class CLI_Commands extends WP_CLI_Command {
         $queue = $assoc_args['queue'] ?? 'default';
         $sleep = (int) ( $assoc_args['sleep'] ?? 3 );
 
-        // Tarkista että sivusto on olemassa
+        // Check site exists
         $site_info = $network->getSiteInfo( $site_id );
         if ( ! $site_info ) {
-            WP_CLI::error( "Sivustoa {$site_id} ei löydy." );
+            WP_CLI::error( "Site {$site_id} not found." );
             return;
         }
 
-        WP_CLI::log( "Worker käynnistetty sivustolle {$site_info['name']} (ID: {$site_id}), jono: {$queue}" );
+        WP_CLI::log( "Worker started for site {$site_info['name']} (ID: {$site_id}), queue: {$queue}" );
 
-        // Aseta driver käyttämään tiettyä sivustoa
+        // Set driver to use specific site
         $driver = wp_cron_v2()->getDriver();
         if ( method_exists( $driver, 'setSiteId' ) ) {
             $driver->setSiteId( $site_id );
@@ -1941,14 +1941,14 @@ class CLI_Commands extends WP_CLI_Command {
         $processed = 0;
 
         while ( true ) {
-            // Prosessoi jobit sivuston kontekstissa
+            // Process jobs in site context
             $result = $network->runOnSite( $site_id, function() use ( $queue ) {
                 return wp_cron_v2()->process_next_job( $queue );
             } );
 
             if ( $result ) {
                 $processed++;
-                WP_CLI::log( "Job prosessoitu sivustolla {$site_id}. Yhteensä: {$processed}" );
+                WP_CLI::log( "Job processed on site {$site_id}. Total: {$processed}" );
             } else {
                 sleep( $sleep );
             }
@@ -1960,5 +1960,5 @@ class CLI_Commands extends WP_CLI_Command {
     }
 }
 
-// Rekisteröi komennot
+// Register commands
 WP_CLI::add_command( 'cron-v2', __NAMESPACE__ . '\\CLI_Commands' );

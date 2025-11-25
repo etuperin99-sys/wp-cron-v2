@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Cron v2
  * Plugin URI: https://gitlab.com/etuperin99/wp-cron-v2
- * Description: Moderni job queue WordPressille - Laravel Horizon -tason taustaprosessijärjestelmä
+ * Description: Modern job queue for WordPress - Laravel Horizon-level background processing system
  * Version: 0.4.0
  * Author: Etuperin99
  * Author URI: https://gitlab.com/etuperin99
@@ -14,12 +14,12 @@
  * Requires PHP: 8.0
  */
 
-// Estä suora pääsy
+// Prevent direct access
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// Pluginin vakiot
+// Plugin constants
 define( 'WP_CRON_V2_VERSION', '0.4.0' );
 define( 'WP_CRON_V2_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -46,7 +46,7 @@ spl_autoload_register( function ( $class ) {
 });
 
 /**
- * Plugin aktivointi
+ * Plugin activation
  */
 function wp_cron_v2_activate() {
     require_once WP_CRON_V2_PLUGIN_DIR . 'includes/class-activator.php';
@@ -55,7 +55,7 @@ function wp_cron_v2_activate() {
 register_activation_hook( __FILE__, 'wp_cron_v2_activate' );
 
 /**
- * Plugin deaktivointi
+ * Plugin deactivation
  */
 function wp_cron_v2_deactivate() {
     require_once WP_CRON_V2_PLUGIN_DIR . 'includes/class-deactivator.php';
@@ -64,7 +64,7 @@ function wp_cron_v2_deactivate() {
 register_deactivation_hook( __FILE__, 'wp_cron_v2_deactivate' );
 
 /**
- * Pääsy pluginin instanssiin
+ * Access plugin instance
  *
  * @return WPCronV2\Queue\Manager
  */
@@ -73,7 +73,7 @@ function wp_cron_v2() {
 }
 
 /**
- * Pääsy WP-Cron adapteriin
+ * Access WP-Cron adapter
  *
  * @return WPCronV2\Adapter\WPCronAdapter
  */
@@ -82,7 +82,7 @@ function wp_cron_v2_adapter() {
 }
 
 /**
- * Pääsy scheduleriin
+ * Access scheduler
  *
  * @return WPCronV2\Queue\Scheduler
  */
@@ -91,9 +91,9 @@ function wp_cron_v2_scheduler() {
 }
 
 /**
- * Luo uusi batch
+ * Create new batch
  *
- * @param string $name Batchin nimi (valinnainen)
+ * @param string $name Batch name (optional)
  * @return WPCronV2\Queue\Batch
  */
 function wp_cron_v2_batch( string $name = '' ) {
@@ -101,9 +101,9 @@ function wp_cron_v2_batch( string $name = '' ) {
 }
 
 /**
- * Luo uusi job chain
+ * Create new job chain
  *
- * @param string $name Ketjun nimi (valinnainen)
+ * @param string $name Chain name (optional)
  * @return WPCronV2\Queue\Chain
  */
 function wp_cron_v2_chain( string $name = '' ) {
@@ -111,7 +111,7 @@ function wp_cron_v2_chain( string $name = '' ) {
 }
 
 /**
- * Pääsy rate limitteriin
+ * Access rate limiter
  *
  * @return WPCronV2\Queue\RateLimiter
  */
@@ -120,7 +120,7 @@ function wp_cron_v2_rate_limiter() {
 }
 
 /**
- * Pääsy webhookeihin
+ * Access webhooks
  *
  * @return WPCronV2\Queue\Webhooks
  */
@@ -129,7 +129,7 @@ function wp_cron_v2_webhooks() {
 }
 
 /**
- * Pääsy multisite network manageriin
+ * Access multisite network manager
  *
  * @return WPCronV2\Multisite\NetworkManager
  */
@@ -138,19 +138,19 @@ function wp_cron_v2_network() {
 }
 
 /**
- * Alusta plugin
+ * Initialize plugin
  */
 add_action( 'plugins_loaded', function() {
-    // Lataa käännökset
+    // Load translations
     load_plugin_textdomain( 'wp-cron-v2', false, dirname( WP_CRON_V2_PLUGIN_BASENAME ) . '/languages' );
 
-    // Alusta Queue Manager
+    // Initialize Queue Manager
     wp_cron_v2();
 
-    // Alusta Scheduler
+    // Initialize Scheduler
     wp_cron_v2_scheduler();
 
-    // Ota WP-Cron adapter käyttöön jos asetus on päällä
+    // Enable WP-Cron adapter if setting is enabled
     $settings = get_option( 'wp_cron_v2_settings', [] );
     if ( ! empty( $settings['enable_wp_cron_adapter'] ) ) {
         wp_cron_v2_adapter()->enable();
@@ -169,7 +169,7 @@ add_action( 'plugins_loaded', function() {
 });
 
 /**
- * WP-CLI komennot
+ * WP-CLI commands
  */
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
     require_once WP_CRON_V2_PLUGIN_DIR . 'includes/class-cli-commands.php';

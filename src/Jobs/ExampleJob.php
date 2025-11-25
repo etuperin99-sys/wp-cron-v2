@@ -1,6 +1,6 @@
 <?php
 /**
- * Esimerkki Job-luokka
+ * Example Job class
  *
  * @package WPCronV2\Jobs
  */
@@ -8,77 +8,77 @@
 namespace WPCronV2\Jobs;
 
 /**
- * Esimerkki jobin toteutuksesta
+ * Example job implementation
  */
 class ExampleJob extends Job {
 
     /**
-     * Maksimi yritykset
+     * Max attempts
      *
      * @var int
      */
     public int $max_attempts = 3;
 
     /**
-     * Jono
+     * Queue
      *
      * @var string
      */
     public string $queue = 'default';
 
     /**
-     * Prioriteetti
+     * Priority
      *
      * @var string
      */
     public string $priority = 'normal';
 
     /**
-     * Jobin data
+     * Job data
      *
      * @var array
      */
     private array $data;
 
     /**
-     * Konstruktori
+     * Constructor
      *
-     * @param array $data Jobin käsittelemä data
+     * @param array $data Data for job to process
      */
     public function __construct( array $data = [] ) {
         $this->data = $data;
     }
 
     /**
-     * Suorita job
+     * Execute job
      *
      * @return void
      */
     public function handle(): void {
-        // Tässä suoritetaan jobin varsinainen työ
-        // Esim. lähetä sähköposti, prosessoi tilaus, synkronoi dataa...
+        // Execute the actual job work here
+        // E.g. send email, process order, sync data...
 
         if ( empty( $this->data ) ) {
-            throw new \Exception( 'Ei dataa käsiteltäväksi' );
+            throw new \Exception( 'No data to process' );
         }
 
-        // Esimerkki: logita data
-        error_log( 'ExampleJob suoritettu: ' . wp_json_encode( $this->data ) );
+        // Example: log data
+        error_log( 'ExampleJob executed: ' . wp_json_encode( $this->data ) );
 
-        // Laukaise action kun job on valmis
+        // Fire action when job is complete
         do_action( 'wp_cron_v2_example_job_completed', $this->data );
     }
 
     /**
-     * Kutsutaan kun job epäonnistuu lopullisesti
+     * Called when job fails permanently
      *
      * @param \Throwable $exception
      * @return void
      */
     public function failed( \Throwable $exception ): void {
-        error_log( 'ExampleJob epäonnistui: ' . $exception->getMessage() );
+        error_log( 'ExampleJob failed: ' . $exception->getMessage() );
 
-        // Laukaise action epäonnistumisesta
+        // Fire action on failure
         do_action( 'wp_cron_v2_example_job_failed', $this->data, $exception );
     }
 }

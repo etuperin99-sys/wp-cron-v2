@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin aktivaattori
+ * Plugin activator
  *
  * @package WPCronV2\Includes
  */
@@ -10,21 +10,21 @@ namespace WPCronV2\Includes;
 class Activator {
 
     /**
-     * Aktivoi plugin
+     * Activate plugin
      */
     public static function activate(): void {
         self::create_tables();
         self::set_default_options();
 
-        // Tallenna versio
+        // Save version
         update_option( 'wp_cron_v2_version', WP_CRON_V2_VERSION );
 
-        // Tyhjennä rewrite rules
+        // Flush rewrite rules
         flush_rewrite_rules();
     }
 
     /**
-     * Luo tietokantataulut
+     * Create database tables
      */
     private static function create_tables(): void {
         global $wpdb;
@@ -57,7 +57,7 @@ class Activator {
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql );
 
-        // Luo myös failed_jobs taulu historiaa varten
+        // Create failed_jobs table for history
         $failed_table = $wpdb->prefix . 'job_queue_failed';
 
         $sql_failed = "CREATE TABLE {$failed_table} (
@@ -74,7 +74,7 @@ class Activator {
 
         dbDelta( $sql_failed );
 
-        // Lisää puuttuvia sarakkeita - jos sarake on jo olemassa, query epäonnistuu hiljaa
+        // Add missing columns - if column already exists, query fails silently
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $wpdb->suppress_errors( true );
 
@@ -88,14 +88,14 @@ class Activator {
             "ALTER TABLE {$table_name} ADD COLUMN site_id bigint(20) UNSIGNED DEFAULT NULL"
         );
 
-        // Lisää site_id indeksi
+        // Add site_id index
         $wpdb->query(
             "ALTER TABLE {$table_name} ADD KEY site_id (site_id)"
         );
 
         $wpdb->suppress_errors( false );
 
-        // Luo job_batches taulu
+        // Create job_batches table
         $batches_table = $wpdb->prefix . 'job_batches';
 
         $sql_batches = "CREATE TABLE {$batches_table} (
@@ -117,7 +117,7 @@ class Activator {
     }
 
     /**
-     * Aseta oletusasetukset
+     * Set default options
      */
     private static function set_default_options(): void {
         $defaults = [
