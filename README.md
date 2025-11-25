@@ -1,6 +1,21 @@
+<div align="center">
+
 # WP Cron v2
 
-Modern job queue for WordPress - Laravel Horizon-level background processing system.
+**Modern job queue for WordPress**
+
+*Laravel Horizon-level background processing system*
+
+[![WordPress](https://img.shields.io/badge/WordPress-6.0%2B-blue.svg)](https://wordpress.org/)
+[![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net/)
+[![License](https://img.shields.io/badge/License-GPL--2.0%2B-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
+[![Version](https://img.shields.io/badge/Version-0.4.0-orange.svg)](https://github.com/etuperin99-sys/wp-cron-v2/releases)
+
+[Features](#current-status-v040) • [Installation](#installation) • [Documentation](#quick-start) • [CLI Commands](#wp-cli-commands) • [Contact](#contact)
+
+</div>
+
+---
 
 ## Why WP Cron v2?
 
@@ -1010,6 +1025,26 @@ wp plugin activate wp-cron-v2
 wp cron-v2 health
 ```
 
+## Contact
+
+Have questions, suggestions, or want to contribute?
+
+- **Email:** [etuperin99@gmail.com](mailto:etuperin99@gmail.com)
+- **GitHub:** [@etuperin99-sys](https://github.com/etuperin99-sys)
+- **Issues:** [Report a bug or request a feature](https://github.com/etuperin99-sys/wp-cron-v2/issues)
+
+---
+
 ## License
 
 GPL-2.0+
+
+---
+
+<div align="center">
+
+**Made with passion for WordPress developers**
+
+If you find this project useful, please consider giving it a star!
+
+</div>
