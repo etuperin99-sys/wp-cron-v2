@@ -116,7 +116,43 @@ wp_cron_v2_scheduler()->schedule(
 // every_30_minutes, hourly, twicedaily, daily, weekly
 ```
 
-### 4. Worker
+### 4. Batch (useita jobeja kerralla)
+
+```php
+// Lähetä 100 sähköpostia batchina
+$users = get_users( [ 'number' => 100 ] );
+
+$batch = wp_cron_v2_batch( 'newsletter-send' );
+
+foreach ( $users as $user ) {
+    $batch->add( new SendNewsletterJob( $user->ID ) );
+}
+
+$batch->onQueue( 'emails' )
+    ->then( function( $batch ) {
+        error_log( 'Newsletter lähetetty kaikille!' );
+    })
+    ->dispatch();
+```
+
+### 5. Chain (peräkkäiset jobit)
+
+```php
+// Tilauksen käsittely vaiheittain
+wp_cron_v2_chain( 'order-' . $order_id )
+    ->add( new ValidateOrderJob( $order_id ) )
+    ->add( new ChargePaymentJob( $order_id ) )
+    ->add( new UpdateInventoryJob( $order_id ) )
+    ->add( new SendConfirmationJob( $order_id ) )
+    ->onQueue( 'orders' )
+    ->catch( function( $chain, $e ) use ( $order_id ) {
+        // Jos jokin vaihe epäonnistuu, peruuta tilaus
+        wp_update_post( [ 'ID' => $order_id, 'post_status' => 'cancelled' ] );
+    })
+    ->dispatch();
+```
+
+### 6. Worker
 
 ```bash
 # Daemon
@@ -209,7 +245,29 @@ wp cron-v2 resume-schedule cleanup-logs
 wp cron-v2 remove-schedule cleanup-logs
 ```
 
-## Kaikki CLI-komennot
+### Batch & Chain
+
+```bash
+# Listaa batchit
+wp cron-v2 batches
+
+# Näytä batchin tiedot
+wp cron-v2 batch-show abc12345
+
+# Peruuta batch (jonossa olevat jobit)
+wp cron-v2 batch-cancel abc12345
+
+# Listaa job chainit
+wp cron-v2 chains
+
+# Näytä chainin tiedot ja edistyminen
+wp cron-v2 chain-show abc12345
+
+# Poista chain
+wp cron-v2 chain-delete abc12345
+```
+
+## Kaikki CLI-komennot (24)
 
 | Komento | Kuvaus |
 |---------|--------|
@@ -231,6 +289,12 @@ wp cron-v2 remove-schedule cleanup-logs
 | `pause-schedule` | Pysäytä schedule |
 | `resume-schedule` | Jatka schedulea |
 | `remove-schedule` | Poista schedule |
+| `batches` | Listaa batchit |
+| `batch-show <id>` | Näytä batchin tiedot |
+| `batch-cancel <id>` | Peruuta batch |
+| `chains` | Listaa job chainit |
+| `chain-show <id>` | Näytä chainin tiedot |
+| `chain-delete <id>` | Poista chain |
 
 ## Admin UI
 
@@ -306,6 +370,31 @@ add_action( 'wp_cron_v2_job_timeout', function( $job_id, $action ) {
 add_action( 'wp_cron_v2_jobs_cleaned', function( $count ) {
     // ...
 }, 10, 1 );
+
+// Batch lähetetty
+add_action( 'wp_cron_v2_batch_dispatched', function( $batch_id, $job_count ) {
+    // ...
+}, 10, 2 );
+
+// Batch peruutettu
+add_action( 'wp_cron_v2_batch_cancelled', function( $batch_id, $cancelled_count ) {
+    // ...
+}, 10, 2 );
+
+// Chain käynnistetty
+add_action( 'wp_cron_v2_chain_started', function( $chain_id, $job_count ) {
+    // ...
+}, 10, 2 );
+
+// Chain valmistui
+add_action( 'wp_cron_v2_chain_completed', function( $chain_id ) {
+    // ...
+}, 10, 1 );
+
+// Chain epäonnistui
+add_action( 'wp_cron_v2_chain_failed', function( $chain_id, $exception ) {
+    // ...
+}, 10, 2 );
 ```
 
 ## WP-Cron Yhteensopivuus
@@ -378,7 +467,7 @@ process_name=%(program_name)s_%(process_num)02d
 
 ```
 wp-cron-v2/
-├── wp-cron-v2.php              # Pääplugin
+├── wp-cron-v2.php              # Pääplugin + helper-funktiot
 ├── uninstall.php               # Poistaa taulut & optiot
 ├── README.md
 ├── .gitignore
@@ -386,7 +475,9 @@ wp-cron-v2/
 ├── src/
 │   ├── Queue/
 │   │   ├── Manager.php         # Jonojen hallinta
-│   │   └── Scheduler.php       # Toistuvat tehtävät
+│   │   ├── Scheduler.php       # Toistuvat tehtävät
+│   │   ├── Batch.php           # Job batching
+│   │   └── Chain.php           # Job chains
 │   │
 │   ├── Jobs/
 │   │   ├── Job.php             # Abstrakti base class
@@ -395,18 +486,72 @@ wp-cron-v2/
 │   ├── Adapter/
 │   │   └── WPCronAdapter.php   # WP-Cron yhteensopivuus
 │   │
+│   ├── Api/
+│   │   └── RestController.php  # REST API
+│   │
 │   └── Admin/
 │       └── AdminPage.php       # Hallintapaneeli
 │
 ├── includes/
 │   ├── class-activator.php     # Taulujen luonti
 │   ├── class-deactivator.php
-│   └── class-cli-commands.php  # WP-CLI (18 komentoa)
+│   └── class-cli-commands.php  # WP-CLI (24 komentoa)
 │
 └── assets/
     ├── css/admin.css
     └── js/admin.js
 ```
+
+## Tietokantarakenne
+
+### wp_job_queue
+
+Pääjono kaikille jobeille.
+
+| Sarake | Tyyppi | Kuvaus |
+|--------|--------|--------|
+| id | bigint | Primary key |
+| job_type | varchar(255) | PHP-luokan nimi |
+| payload | longtext | Serialisoitu job-objekti |
+| queue | varchar(100) | Jonon nimi (default, emails, etc.) |
+| priority | varchar(20) | low / normal / high |
+| attempts | tinyint | Yrityskerrat |
+| max_attempts | tinyint | Max yritykset |
+| available_at | datetime | Milloin job on käsiteltävissä |
+| created_at | datetime | Luontiaika |
+| updated_at | datetime | Päivitysaika |
+| status | varchar(20) | queued / running / completed / failed |
+| error_message | text | Virheilmoitus (jos failed) |
+| batch_id | varchar(36) | Batch ID (jos osa batchia) |
+
+### wp_job_queue_failed
+
+Historia epäonnistuneista jobeista.
+
+| Sarake | Tyyppi | Kuvaus |
+|--------|--------|--------|
+| id | bigint | Primary key |
+| job_type | varchar(255) | PHP-luokan nimi |
+| payload | longtext | Serialisoitu job-objekti |
+| queue | varchar(100) | Jonon nimi |
+| exception | longtext | Virheviesti |
+| failed_at | datetime | Epäonnistumisaika |
+
+### wp_job_batches
+
+Batchien metatiedot.
+
+| Sarake | Tyyppi | Kuvaus |
+|--------|--------|--------|
+| id | varchar(36) | UUID Primary key |
+| name | varchar(255) | Batchin nimi |
+| total_jobs | int | Jobien kokonaismäärä |
+| pending_jobs | int | Odottavien määrä |
+| failed_jobs | int | Epäonnistuneiden määrä |
+| options | longtext | Callbackit yms. |
+| created_at | datetime | Luontiaika |
+| cancelled_at | datetime | Peruutusaika |
+| finished_at | datetime | Valmistumisaika |
 
 ## API Reference
 
