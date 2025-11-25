@@ -38,6 +38,20 @@ abstract class Job {
     public int $timeout = 60;
 
     /**
+     * Chain ID (jos osa ketjua)
+     *
+     * @var string|null
+     */
+    public ?string $chain_id = null;
+
+    /**
+     * Sijainti ketjussa
+     *
+     * @var int|null
+     */
+    public ?int $chain_position = null;
+
+    /**
      * Suorita job
      *
      * @return void

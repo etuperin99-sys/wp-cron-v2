@@ -15,6 +15,7 @@ global $wpdb;
 // Poista tietokantataulut
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}job_queue" );
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}job_queue_failed" );
+$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}job_batches" );
 
 // Poista optiot
 delete_option( 'wp_cron_v2_version' );

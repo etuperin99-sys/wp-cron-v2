@@ -18,7 +18,7 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Health check | ❌ | ✅ `wp cron-v2 health` |
 | Skaalautuvuus | ❌ | ✅ Cluster-ready |
 
-## Nykytila (v0.1.0)
+## Nykytila (v0.2.0)
 
 | Ominaisuus | Tila |
 |------------|------|
@@ -30,9 +30,12 @@ Nykyinen WP-Cron on WordPressin suurin tekninen pullonkaula:
 | Scheduled jobs (toistuvat) | ✅ |
 | Admin UI (dashboard, job-lista) | ✅ |
 | WP-Cron backwards compatibility | ✅ |
-| WP-CLI komennot (18 komentoa) | ✅ |
+| WP-CLI komennot (24 komentoa) | ✅ |
 | Health check | ✅ |
 | Cleanup & maintenance | ✅ |
+| Job Batching | ✅ |
+| Job Chains | ✅ |
+| REST API | ✅ |
 | Redis-driver | ❌ Tulossa |
 | Multisite | ❌ Tulossa |
 
@@ -457,6 +460,66 @@ wp_cron_v2_scheduler()->resume( string $name ): bool
 wp_cron_v2_scheduler()->get_schedules(): array
 ```
 
+### wp_cron_v2_batch()
+
+```php
+// Luo batch useille jobeille
+wp_cron_v2_batch( 'import-users' )
+    ->add( new ImportUserJob( $user1 ) )
+    ->add( new ImportUserJob( $user2 ) )
+    ->add( new ImportUserJob( $user3 ) )
+    ->onQueue( 'imports' )
+    ->then( function( $batch ) {
+        // Callback kun kaikki valmiit
+    })
+    ->catch( function( $batch, $e ) {
+        // Callback kun jokin epäonnistuu
+    })
+    ->dispatch();
+
+// Hae batch tilastot
+WPCronV2\Queue\Batch::getStats( $batch_id ): array
+WPCronV2\Queue\Batch::isFinished( $batch_id ): bool
+WPCronV2\Queue\Batch::cancel( $batch_id ): int
+```
+
+### wp_cron_v2_chain()
+
+```php
+// Suorita jobit peräkkäin (seuraava alkaa kun edellinen valmis)
+wp_cron_v2_chain( 'process-order' )
+    ->add( new ValidateOrderJob( $order ) )
+    ->add( new ProcessPaymentJob( $order ) )
+    ->add( new SendConfirmationJob( $order ) )
+    ->onQueue( 'orders' )
+    ->then( function( $chain ) {
+        // Callback kun ketju valmis
+    })
+    ->catch( function( $chain, $e ) {
+        // Callback kun jokin vaihe epäonnistuu
+    })
+    ->dispatch();
+```
+
+### REST API
+
+```bash
+# Endpointit (vaatii manage_options -oikeuden)
+GET  /wp-json/wp-cron-v2/v1/stats
+GET  /wp-json/wp-cron-v2/v1/health
+GET  /wp-json/wp-cron-v2/v1/jobs
+GET  /wp-json/wp-cron-v2/v1/jobs/{id}
+DELETE /wp-json/wp-cron-v2/v1/jobs/{id}
+POST /wp-json/wp-cron-v2/v1/jobs/{id}/retry
+GET  /wp-json/wp-cron-v2/v1/queues
+GET  /wp-json/wp-cron-v2/v1/schedules
+GET  /wp-json/wp-cron-v2/v1/batches
+GET  /wp-json/wp-cron-v2/v1/chains
+POST /wp-json/wp-cron-v2/v1/actions/retry-failed
+POST /wp-json/wp-cron-v2/v1/actions/flush-failed
+POST /wp-json/wp-cron-v2/v1/actions/release-stale
+```
+
 ## Vaatimukset
 
 - WordPress 6.0+
@@ -474,16 +537,16 @@ wp_cron_v2_scheduler()->get_schedules(): array
 - [x] Scheduled jobs
 - [x] Admin UI
 - [x] WP-Cron adapter
-- [x] WP-CLI (18 komentoa)
+- [x] WP-CLI (24 komentoa)
 - [x] Health check
 - [x] Cleanup & maintenance
+- [x] Job batching
+- [x] Job chains
+- [x] REST API
 - [ ] Redis-driver
 - [ ] Multisite-tuki
-- [ ] Job batching
 - [ ] Rate limiting
-- [ ] Job chains
 - [ ] Webhooks
-- [ ] REST API
 
 ## Kehitys
 

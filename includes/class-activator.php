@@ -73,6 +73,35 @@ class Activator {
         ) {$charset_collate};";
 
         dbDelta( $sql_failed );
+
+        // Lisää batch_id sarake job_queue tauluun jos puuttuu
+        // Kokeile lisätä sarake - jos se on jo olemassa, query epäonnistuu hiljaa
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->suppress_errors( true );
+        $wpdb->query(
+            "ALTER TABLE {$table_name} ADD COLUMN batch_id varchar(36) DEFAULT NULL"
+        );
+        $wpdb->suppress_errors( false );
+
+        // Luo job_batches taulu
+        $batches_table = $wpdb->prefix . 'job_batches';
+
+        $sql_batches = "CREATE TABLE {$batches_table} (
+            id varchar(36) NOT NULL,
+            name varchar(255) NOT NULL,
+            total_jobs int(10) UNSIGNED NOT NULL DEFAULT 0,
+            pending_jobs int(10) UNSIGNED NOT NULL DEFAULT 0,
+            failed_jobs int(10) UNSIGNED NOT NULL DEFAULT 0,
+            options longtext DEFAULT NULL,
+            created_at datetime NOT NULL,
+            cancelled_at datetime DEFAULT NULL,
+            finished_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY name (name),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql_batches );
     }
 
     /**

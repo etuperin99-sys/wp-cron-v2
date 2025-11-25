@@ -998,6 +998,315 @@ class CLI_Commands extends WP_CLI_Command {
             WP_CLI::log( '  wp cron-v2 worker           # Käynnistä worker' );
         }
     }
+
+    /**
+     * Listaa batchit
+     *
+     * ## OPTIONS
+     *
+     * [--limit=<number>]
+     * : Näytettävien batchien määrä
+     * ---
+     * default: 20
+     * ---
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 batches
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function batches( $args, $assoc_args ) {
+        $limit = (int) ( $assoc_args['limit'] ?? 20 );
+        $format = $assoc_args['format'] ?? 'table';
+
+        $batches = \WPCronV2\Queue\Batch::all( $limit );
+
+        if ( empty( $batches ) ) {
+            WP_CLI::log( 'Ei batcheja.' );
+            return;
+        }
+
+        $data = [];
+        foreach ( $batches as $batch ) {
+            $stats = \WPCronV2\Queue\Batch::getStats( $batch['id'] );
+            $data[] = [
+                'id' => substr( $batch['id'], 0, 8 ) . '...',
+                'name' => $batch['name'],
+                'total' => $batch['total_jobs'],
+                'completed' => $stats['completed'],
+                'failed' => $stats['failed'],
+                'progress' => $stats['progress'] . '%',
+                'created_at' => $batch['created_at'],
+            ];
+        }
+
+        WP_CLI\Utils\format_items( $format, $data, [ 'id', 'name', 'total', 'completed', 'failed', 'progress', 'created_at' ] );
+    }
+
+    /**
+     * Näytä batchin tiedot
+     *
+     * ## OPTIONS
+     *
+     * <id>
+     * : Batch ID (tai alku siitä)
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 batch-show abc12345
+     *
+     * @subcommand batch-show
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function batch_show( $args, $assoc_args ) {
+        global $wpdb;
+
+        $id = $args[0];
+        $table = $wpdb->prefix . 'job_batches';
+
+        // Etsi batch (osittaisella ID:llä)
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $batch = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE id LIKE %s LIMIT 1",
+                $id . '%'
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $batch ) {
+            WP_CLI::error( "Batchia '{$id}' ei löydy." );
+        }
+
+        $stats = \WPCronV2\Queue\Batch::getStats( $batch['id'] );
+
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%GBatch: ' . $batch['name'] . '%n' ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+        WP_CLI::log( "ID:         {$batch['id']}" );
+        WP_CLI::log( "Luotu:      {$batch['created_at']}" );
+        WP_CLI::log( "Valmistunut: " . ( $batch['finished_at'] ?: '-' ) );
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%YTilastot:%n' ) );
+        WP_CLI::log( "Yhteensä:     {$stats['total']}" );
+        WP_CLI::log( "Jonossa:      {$stats['queued']}" );
+        WP_CLI::log( "Käynnissä:    {$stats['running']}" );
+        WP_CLI::log( "Valmiita:     {$stats['completed']}" );
+        WP_CLI::log( "Epäonnist.:   {$stats['failed']}" );
+        WP_CLI::log( "Edistyminen:  {$stats['progress']}%" );
+    }
+
+    /**
+     * Peruuta batch
+     *
+     * ## OPTIONS
+     *
+     * <id>
+     * : Batch ID (tai alku siitä)
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 batch-cancel abc12345
+     *
+     * @subcommand batch-cancel
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function batch_cancel( $args, $assoc_args ) {
+        global $wpdb;
+
+        $id = $args[0];
+        $table = $wpdb->prefix . 'job_batches';
+
+        // Etsi batch
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $batch = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id FROM {$table} WHERE id LIKE %s LIMIT 1",
+                $id . '%'
+            )
+        );
+
+        if ( ! $batch ) {
+            WP_CLI::error( "Batchia '{$id}' ei löydy." );
+        }
+
+        $cancelled = \WPCronV2\Queue\Batch::cancel( $batch->id );
+
+        WP_CLI::success( "Peruutettu {$cancelled} jobia batchista." );
+    }
+
+    /**
+     * Listaa job chainit
+     *
+     * ## OPTIONS
+     *
+     * [--limit=<number>]
+     * : Näytettävien chainien määrä
+     * ---
+     * default: 20
+     * ---
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 chains
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function chains( $args, $assoc_args ) {
+        $format = $assoc_args['format'] ?? 'table';
+
+        $chains = \WPCronV2\Queue\Chain::all();
+
+        if ( empty( $chains ) ) {
+            WP_CLI::log( 'Ei job chaineja.' );
+            return;
+        }
+
+        $data = [];
+        foreach ( $chains as $chain ) {
+            $data[] = [
+                'id' => substr( $chain['id'], 0, 8 ) . '...',
+                'name' => $chain['name'],
+                'total' => $chain['total_jobs'],
+                'current' => $chain['current_index'] + 1,
+                'status' => $chain['status'],
+                'created_at' => $chain['created_at'],
+            ];
+        }
+
+        WP_CLI\Utils\format_items( $format, $data, [ 'id', 'name', 'total', 'current', 'status', 'created_at' ] );
+    }
+
+    /**
+     * Näytä chainin tiedot
+     *
+     * ## OPTIONS
+     *
+     * <id>
+     * : Chain ID (tai alku siitä)
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 chain-show abc12345
+     *
+     * @subcommand chain-show
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function chain_show( $args, $assoc_args ) {
+        $id = $args[0];
+
+        // Etsi chain
+        $chains = \WPCronV2\Queue\Chain::all();
+        $chain = null;
+
+        foreach ( $chains as $c ) {
+            if ( strpos( $c['id'], $id ) === 0 ) {
+                $chain = $c;
+                break;
+            }
+        }
+
+        if ( ! $chain ) {
+            WP_CLI::error( "Chainia '{$id}' ei löydy." );
+        }
+
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%GChain: ' . $chain['name'] . '%n' ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+        WP_CLI::log( "ID:           {$chain['id']}" );
+        WP_CLI::log( "Status:       {$chain['status']}" );
+        WP_CLI::log( "Jono:         {$chain['queue']}" );
+        WP_CLI::log( "Luotu:        {$chain['created_at']}" );
+        WP_CLI::log( "Valmistunut:  " . ( $chain['finished_at'] ?? '-' ) );
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%YJobit (' . $chain['total_jobs'] . '):%n' ) );
+
+        foreach ( $chain['jobs'] as $index => $job_data ) {
+            $parts = explode( '\\', $job_data['class'] );
+            $job_name = end( $parts );
+
+            $status = '';
+            if ( $index < $chain['current_index'] ) {
+                $status = WP_CLI::colorize( '%G✓%n' );
+            } elseif ( $index === $chain['current_index'] && $chain['status'] === 'running' ) {
+                $status = WP_CLI::colorize( '%Y►%n' );
+            } else {
+                $status = WP_CLI::colorize( '%K○%n' );
+            }
+
+            WP_CLI::log( "  {$status} " . ( $index + 1 ) . ". {$job_name}" );
+        }
+
+        if ( ! empty( $chain['error'] ) ) {
+            WP_CLI::log( '' );
+            WP_CLI::log( WP_CLI::colorize( '%RVirhe:%n ' . $chain['error'] ) );
+        }
+    }
+
+    /**
+     * Poista chain
+     *
+     * ## OPTIONS
+     *
+     * <id>
+     * : Chain ID (tai alku siitä)
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 chain-delete abc12345
+     *
+     * @subcommand chain-delete
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function chain_delete( $args, $assoc_args ) {
+        $id = $args[0];
+
+        // Etsi chain
+        $chains = \WPCronV2\Queue\Chain::all();
+        $chain_id = null;
+
+        foreach ( $chains as $c ) {
+            if ( strpos( $c['id'], $id ) === 0 ) {
+                $chain_id = $c['id'];
+                break;
+            }
+        }
+
+        if ( ! $chain_id ) {
+            WP_CLI::error( "Chainia '{$id}' ei löydy." );
+        }
+
+        if ( \WPCronV2\Queue\Chain::delete( $chain_id ) ) {
+            WP_CLI::success( "Chain poistettu." );
+        } else {
+            WP_CLI::error( "Chain poisto epäonnistui." );
+        }
+    }
 }
 
 // Rekisteröi komennot

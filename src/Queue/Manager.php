@@ -54,6 +54,55 @@ class Manager {
      */
     private function init_hooks(): void {
         add_action( 'init', [ $this, 'maybe_process_queue' ] );
+
+        // Käsittele ketjun jatkaminen kun job valmistuu
+        add_action( 'wp_cron_v2_job_completed', [ $this, 'handle_chain_progress' ], 10, 2 );
+
+        // Käsittele ketjun epäonnistuminen
+        add_action( 'wp_cron_v2_job_failed', [ $this, 'handle_chain_failure' ], 10, 2 );
+    }
+
+    /**
+     * Käsittele ketjun eteneminen
+     *
+     * @param int $job_id Job ID
+     * @param object $job Job-instanssi
+     */
+    public function handle_chain_progress( int $job_id, $job ): void {
+        if ( ! isset( $job->chain_id ) || ! $job->chain_id ) {
+            return;
+        }
+
+        Chain::processNext( $job->chain_id, $job->chain_position ?? 0 );
+    }
+
+    /**
+     * Käsittele ketjun epäonnistuminen
+     *
+     * @param int $job_id Job ID
+     * @param \Throwable $exception Virhe
+     */
+    public function handle_chain_failure( int $job_id, \Throwable $exception ): void {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'job_queue';
+
+        // Hae jobin tiedot
+        $job_row = $wpdb->get_row(
+            $wpdb->prepare( "SELECT payload FROM {$table} WHERE id = %d", $job_id )
+        );
+
+        if ( ! $job_row ) {
+            return;
+        }
+
+        $job = maybe_unserialize( $job_row->payload );
+
+        if ( ! isset( $job->chain_id ) || ! $job->chain_id ) {
+            return;
+        }
+
+        Chain::markFailed( $job->chain_id, $exception );
     }
 
     /**

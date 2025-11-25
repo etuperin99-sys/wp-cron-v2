@@ -3,7 +3,7 @@
  * Plugin Name: WP Cron v2
  * Plugin URI: https://gitlab.com/etuperin99/wp-cron-v2
  * Description: Moderni job queue WordPressille - Laravel Horizon -tason taustaprosessijärjestelmä
- * Version: 0.1.0
+ * Version: 0.2.0
  * Author: Etuperin99
  * Author URI: https://gitlab.com/etuperin99
  * License: GPL-2.0+
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Pluginin vakiot
-define( 'WP_CRON_V2_VERSION', '0.1.0' );
+define( 'WP_CRON_V2_VERSION', '0.2.0' );
 define( 'WP_CRON_V2_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -91,6 +91,26 @@ function wp_cron_v2_scheduler() {
 }
 
 /**
+ * Luo uusi batch
+ *
+ * @param string $name Batchin nimi (valinnainen)
+ * @return WPCronV2\Queue\Batch
+ */
+function wp_cron_v2_batch( string $name = '' ) {
+    return new WPCronV2\Queue\Batch( $name );
+}
+
+/**
+ * Luo uusi job chain
+ *
+ * @param string $name Ketjun nimi (valinnainen)
+ * @return WPCronV2\Queue\Chain
+ */
+function wp_cron_v2_chain( string $name = '' ) {
+    return new WPCronV2\Queue\Chain( $name );
+}
+
+/**
  * Alusta plugin
  */
 add_action( 'plugins_loaded', function() {
@@ -113,6 +133,9 @@ add_action( 'plugins_loaded', function() {
     if ( is_admin() ) {
         WPCronV2\Admin\AdminPage::get_instance();
     }
+
+    // REST API
+    WPCronV2\Api\RestController::get_instance();
 });
 
 /**
