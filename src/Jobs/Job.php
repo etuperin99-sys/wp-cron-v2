@@ -52,6 +52,34 @@ abstract class Job {
     public ?int $chain_position = null;
 
     /**
+     * Rate limit asetukset
+     *
+     * Esim: ['max' => 10, 'per' => 60] = max 10 suoritusta per 60 sekuntia
+     *
+     * @var array|null
+     */
+    public ?array $rate_limit = null;
+
+    /**
+     * Unique key - estää duplikaatit
+     *
+     * Jos asetettu, sama job (sama unique_key) voidaan lisätä jonoon vain kerran.
+     * Kun job valmistuu tai epäonnistuu, uusi samanlainen voidaan lisätä.
+     *
+     * @var string|null
+     */
+    public ?string $unique_key = null;
+
+    /**
+     * Unique lock kesto sekunteina
+     *
+     * Kuinka kauan unique lock on voimassa (oletus: kunnes job valmistuu)
+     *
+     * @var int|null
+     */
+    public ?int $unique_for = null;
+
+    /**
      * Suorita job
      *
      * @return void

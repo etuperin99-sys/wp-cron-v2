@@ -1307,6 +1307,252 @@ class CLI_Commands extends WP_CLI_Command {
             WP_CLI::error( "Chain poisto epäonnistui." );
         }
     }
+
+    /**
+     * Listaa webhookit
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 webhooks
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function webhooks( $args, $assoc_args ) {
+        $format = $assoc_args['format'] ?? 'table';
+        $webhooks = wp_cron_v2_webhooks()->getAll();
+
+        if ( empty( $webhooks ) ) {
+            WP_CLI::log( 'Ei webhookeja.' );
+            return;
+        }
+
+        $data = [];
+        foreach ( $webhooks as $name => $webhook ) {
+            $data[] = [
+                'name'    => $name,
+                'url'     => substr( $webhook['url'], 0, 50 ) . ( strlen( $webhook['url'] ) > 50 ? '...' : '' ),
+                'events'  => implode( ', ', $webhook['events'] ),
+                'enabled' => $webhook['enabled'] ? 'yes' : 'no',
+            ];
+        }
+
+        WP_CLI\Utils\format_items( $format, $data, [ 'name', 'url', 'events', 'enabled' ] );
+    }
+
+    /**
+     * Lisää webhook
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Webhookin nimi
+     *
+     * <url>
+     * : Kohde-URL
+     *
+     * [--events=<events>]
+     * : Tapahtumat pilkulla erotettuna (oletus: job.completed,job.failed)
+     * ---
+     * default: job.completed,job.failed
+     * ---
+     *
+     * [--secret=<secret>]
+     * : HMAC secret allekirjoitusta varten
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 webhook-add slack https://hooks.slack.com/xxx
+     *     wp cron-v2 webhook-add monitor https://example.com/webhook --events=job.failed,chain.failed --secret=mysecret
+     *
+     * @subcommand webhook-add
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function webhook_add( $args, $assoc_args ) {
+        $name = $args[0];
+        $url = $args[1];
+        $events = array_map( 'trim', explode( ',', $assoc_args['events'] ?? 'job.completed,job.failed' ) );
+        $secret = $assoc_args['secret'] ?? '';
+
+        if ( wp_cron_v2_webhooks()->register( $name, $url, $events, [ 'secret' => $secret ] ) ) {
+            WP_CLI::success( "Webhook '{$name}' lisätty." );
+        } else {
+            WP_CLI::error( "Webhook lisäys epäonnistui." );
+        }
+    }
+
+    /**
+     * Poista webhook
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Webhookin nimi
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 webhook-remove slack
+     *
+     * @subcommand webhook-remove
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function webhook_remove( $args, $assoc_args ) {
+        $name = $args[0];
+
+        if ( wp_cron_v2_webhooks()->unregister( $name ) ) {
+            WP_CLI::success( "Webhook '{$name}' poistettu." );
+        } else {
+            WP_CLI::error( "Webhookia '{$name}' ei löydy." );
+        }
+    }
+
+    /**
+     * Testaa webhookia
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Webhookin nimi
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 webhook-test slack
+     *
+     * @subcommand webhook-test
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function webhook_test( $args, $assoc_args ) {
+        $name = $args[0];
+
+        WP_CLI::log( "Testataan webhookia '{$name}'..." );
+
+        $result = wp_cron_v2_webhooks()->test( $name );
+
+        if ( $result['success'] ) {
+            WP_CLI::success( "Webhook vastasi: HTTP {$result['status_code']}" );
+            if ( ! empty( $result['body'] ) ) {
+                WP_CLI::log( "Response: " . substr( $result['body'], 0, 200 ) );
+            }
+        } else {
+            WP_CLI::error( "Webhook testi epäonnistui: " . $result['error'] );
+        }
+    }
+
+    /**
+     * Ota webhook käyttöön/pois
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Webhookin nimi
+     *
+     * <status>
+     * : on tai off
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 webhook-toggle slack off
+     *     wp cron-v2 webhook-toggle slack on
+     *
+     * @subcommand webhook-toggle
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function webhook_toggle( $args, $assoc_args ) {
+        $name = $args[0];
+        $enabled = strtolower( $args[1] ) === 'on';
+
+        if ( wp_cron_v2_webhooks()->setEnabled( $name, $enabled ) ) {
+            $status = $enabled ? 'käytössä' : 'pois käytöstä';
+            WP_CLI::success( "Webhook '{$name}' nyt {$status}." );
+        } else {
+            WP_CLI::error( "Webhookia '{$name}' ei löydy." );
+        }
+    }
+
+    /**
+     * Näytä rate limit tilastot
+     *
+     * ## OPTIONS
+     *
+     * <key>
+     * : Rate limit avain (esim. "job_type:MyJob" tai "queue:emails")
+     *
+     * [--max=<max>]
+     * : Maksimi (oletus: 60)
+     * ---
+     * default: 60
+     * ---
+     *
+     * [--per=<seconds>]
+     * : Aikaikkuna sekunteina (oletus: 60)
+     * ---
+     * default: 60
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 rate-limit-stats "job_type:SendEmailJob" --max=10 --per=60
+     *
+     * @subcommand rate-limit-stats
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function rate_limit_stats( $args, $assoc_args ) {
+        $key = $args[0];
+        $max = (int) ( $assoc_args['max'] ?? 60 );
+        $per = (int) ( $assoc_args['per'] ?? 60 );
+
+        $stats = wp_cron_v2_rate_limiter()->getStats( $key, $max, $per );
+
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%GRate Limit: ' . $key . '%n' ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+        WP_CLI::log( "Käytetty:     {$stats['used']} / {$stats['max']}" );
+        WP_CLI::log( "Jäljellä:     {$stats['remaining']}" );
+        WP_CLI::log( "Nollautuu:    {$stats['resets_in']}s" );
+        WP_CLI::log( "Aikaikkuna:   {$stats['window_seconds']}s" );
+    }
+
+    /**
+     * Nollaa rate limit
+     *
+     * ## OPTIONS
+     *
+     * <key>
+     * : Rate limit avain
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 rate-limit-reset "job_type:SendEmailJob"
+     *
+     * @subcommand rate-limit-reset
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function rate_limit_reset( $args, $assoc_args ) {
+        $key = $args[0];
+
+        if ( wp_cron_v2_rate_limiter()->reset( $key ) ) {
+            WP_CLI::success( "Rate limit '{$key}' nollattu." );
+        } else {
+            WP_CLI::log( "Rate limittiä ei ollut asetettu." );
+        }
+    }
 }
 
 // Rekisteröi komennot

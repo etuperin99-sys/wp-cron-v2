@@ -159,6 +159,24 @@ class Manager {
     private function push_to_queue( $job, int $delay = 0 ) {
         global $wpdb;
 
+        // Tarkista unique constraint
+        if ( ! empty( $job->unique_key ) ) {
+            if ( $this->is_unique_locked( $job->unique_key ) ) {
+                // Job on jo jonossa tai käsittelyssä
+                do_action( 'wp_cron_v2_job_duplicate_blocked', $job );
+
+                // Resetoi arvot
+                $this->current_queue = 'default';
+                $this->priority = 'normal';
+
+                return false;
+            }
+
+            // Aseta unique lock
+            $lock_time = $job->unique_for ?? 3600; // Oletus 1 tunti
+            $this->set_unique_lock( $job->unique_key, $lock_time );
+        }
+
         $table = $wpdb->prefix . 'job_queue';
         $now = current_time( 'mysql', true );
 
@@ -190,7 +208,41 @@ class Manager {
             return $wpdb->insert_id;
         }
 
+        // Jos insert epäonnistui, vapauta unique lock
+        if ( ! empty( $job->unique_key ) ) {
+            $this->release_unique_lock( $job->unique_key );
+        }
+
         return false;
+    }
+
+    /**
+     * Tarkista onko unique lock voimassa
+     *
+     * @param string $key Unique key
+     * @return bool
+     */
+    public function is_unique_locked( string $key ): bool {
+        return false !== get_transient( 'wp_cron_v2_unique_' . md5( $key ) );
+    }
+
+    /**
+     * Aseta unique lock
+     *
+     * @param string $key Unique key
+     * @param int $ttl Lock kesto sekunteina
+     */
+    public function set_unique_lock( string $key, int $ttl ): void {
+        set_transient( 'wp_cron_v2_unique_' . md5( $key ), time(), $ttl );
+    }
+
+    /**
+     * Vapauta unique lock
+     *
+     * @param string $key Unique key
+     */
+    public function release_unique_lock( string $key ): void {
+        delete_transient( 'wp_cron_v2_unique_' . md5( $key ) );
     }
 
     /**
@@ -260,6 +312,29 @@ class Manager {
                 throw new \Exception( 'Invalid job payload' );
             }
 
+            // Tarkista rate limit
+            $rate_limiter = RateLimiter::get_instance();
+            if ( ! $rate_limiter->hitForJob( $job ) ) {
+                // Rate limit ylitetty - palauta jonoon pienellä viiveellä
+                $delay = $rate_limiter->availableIn(
+                    $job->rate_limit['key'] ?? $rate_limiter->keyForJobType( get_class( $job ) ),
+                    $job->rate_limit['per'] ?? 60
+                );
+
+                $wpdb->update(
+                    $table,
+                    [
+                        'status'       => 'queued',
+                        'available_at' => gmdate( 'Y-m-d H:i:s', time() + max( 1, $delay ) ),
+                        'updated_at'   => current_time( 'mysql', true ),
+                    ],
+                    [ 'id' => $job_row->id ]
+                );
+
+                do_action( 'wp_cron_v2_job_rate_limited', $job_row->id, $job, $delay );
+                return false;
+            }
+
             $job->handle();
 
             // Merkitse valmiiksi
@@ -272,12 +347,20 @@ class Manager {
                 [ 'id' => $job_row->id ]
             );
 
+            // Vapauta unique lock jos asetettu
+            if ( ! empty( $job->unique_key ) ) {
+                $this->release_unique_lock( $job->unique_key );
+            }
+
             do_action( 'wp_cron_v2_job_completed', $job_row->id, $job );
             return true;
 
         } catch ( \Throwable $e ) {
             $attempts = (int) $job_row->attempts + 1;
             $max_attempts = (int) $job_row->max_attempts;
+
+            // Hae job uudelleen unique_key:n vapauttamista varten
+            $job = maybe_unserialize( $job_row->payload );
 
             if ( $attempts >= $max_attempts ) {
                 // Lopullinen epäonnistuminen
@@ -291,6 +374,11 @@ class Manager {
                     ],
                     [ 'id' => $job_row->id ]
                 );
+
+                // Vapauta unique lock jos asetettu
+                if ( is_object( $job ) && ! empty( $job->unique_key ) ) {
+                    $this->release_unique_lock( $job->unique_key );
+                }
 
                 do_action( 'wp_cron_v2_job_failed', $job_row->id, $e );
             } else {

@@ -3,7 +3,7 @@
  * Plugin Name: WP Cron v2
  * Plugin URI: https://gitlab.com/etuperin99/wp-cron-v2
  * Description: Moderni job queue WordPressille - Laravel Horizon -tason taustaprosessijärjestelmä
- * Version: 0.2.0
+ * Version: 0.3.0
  * Author: Etuperin99
  * Author URI: https://gitlab.com/etuperin99
  * License: GPL-2.0+
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Pluginin vakiot
-define( 'WP_CRON_V2_VERSION', '0.2.0' );
+define( 'WP_CRON_V2_VERSION', '0.3.0' );
 define( 'WP_CRON_V2_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WP_CRON_V2_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -111,6 +111,24 @@ function wp_cron_v2_chain( string $name = '' ) {
 }
 
 /**
+ * Pääsy rate limitteriin
+ *
+ * @return WPCronV2\Queue\RateLimiter
+ */
+function wp_cron_v2_rate_limiter() {
+    return WPCronV2\Queue\RateLimiter::get_instance();
+}
+
+/**
+ * Pääsy webhookeihin
+ *
+ * @return WPCronV2\Queue\Webhooks
+ */
+function wp_cron_v2_webhooks() {
+    return WPCronV2\Queue\Webhooks::get_instance();
+}
+
+/**
  * Alusta plugin
  */
 add_action( 'plugins_loaded', function() {
@@ -136,6 +154,9 @@ add_action( 'plugins_loaded', function() {
 
     // REST API
     WPCronV2\Api\RestController::get_instance();
+
+    // Webhooks
+    WPCronV2\Queue\Webhooks::get_instance();
 });
 
 /**
