@@ -493,6 +493,341 @@ class CLI_Commands extends WP_CLI_Command {
 
         WP_CLI::success( "Peruutettu {$cancelled} jobia." );
     }
+
+    /**
+     * Suorita yksittäinen job heti (ohita jono)
+     *
+     * ## OPTIONS
+     *
+     * <id>
+     * : Jobin ID
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 run 123
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function run( $args, $assoc_args ) {
+        global $wpdb;
+
+        $id = (int) $args[0];
+        $table = $wpdb->prefix . 'job_queue';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $job_row = $wpdb->get_row(
+            $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ),
+            ARRAY_A
+        );
+
+        if ( ! $job_row ) {
+            WP_CLI::error( "Jobia ID {$id} ei löydy." );
+        }
+
+        if ( $job_row['status'] === 'running' ) {
+            WP_CLI::error( "Job {$id} on jo käynnissä." );
+        }
+
+        if ( $job_row['status'] === 'completed' ) {
+            WP_CLI::error( "Job {$id} on jo suoritettu." );
+        }
+
+        // Merkitse käynnissä
+        $wpdb->update(
+            $table,
+            [ 'status' => 'running', 'updated_at' => current_time( 'mysql', true ) ],
+            [ 'id' => $id ]
+        );
+
+        WP_CLI::log( "Suoritetaan job {$id}..." );
+
+        try {
+            $job = maybe_unserialize( $job_row['payload'] );
+
+            if ( ! is_object( $job ) || ! method_exists( $job, 'handle' ) ) {
+                throw new \Exception( 'Invalid job payload' );
+            }
+
+            $start = microtime( true );
+            $job->handle();
+            $duration = round( ( microtime( true ) - $start ) * 1000 );
+
+            $wpdb->update(
+                $table,
+                [ 'status' => 'completed', 'updated_at' => current_time( 'mysql', true ) ],
+                [ 'id' => $id ]
+            );
+
+            WP_CLI::success( "Job {$id} suoritettu onnistuneesti ({$duration}ms)." );
+
+        } catch ( \Throwable $e ) {
+            $wpdb->update(
+                $table,
+                [
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                    'updated_at' => current_time( 'mysql', true )
+                ],
+                [ 'id' => $id ]
+            );
+
+            WP_CLI::error( "Job {$id} epäonnistui: " . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Prosessoi kaikki jonossa olevat jobit kerralla
+     *
+     * ## OPTIONS
+     *
+     * [--queue=<queue>]
+     * : Jonon nimi
+     * ---
+     * default: default
+     * ---
+     *
+     * [--limit=<number>]
+     * : Maksimi määrä prosessoitavia jobeja
+     * ---
+     * default: 100
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 work
+     *     wp cron-v2 work --queue=emails --limit=50
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function work( $args, $assoc_args ) {
+        $queue = $assoc_args['queue'] ?? 'default';
+        $limit = (int) ( $assoc_args['limit'] ?? 100 );
+        $processed = 0;
+        $failed = 0;
+
+        WP_CLI::log( "Prosessoidaan jonoa '{$queue}'..." );
+
+        while ( $processed < $limit ) {
+            $result = wp_cron_v2()->process_next_job( $queue );
+
+            if ( $result === false ) {
+                // Ei enää jobeja
+                break;
+            }
+
+            if ( $result ) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        WP_CLI::success( "Valmis. Prosessoitu: {$processed}, epäonnistunut: {$failed}" );
+    }
+
+    /**
+     * Näytä jonon tilastot yksityiskohtaisesti
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 info
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function info( $args, $assoc_args ) {
+        global $wpdb;
+
+        $format = $assoc_args['format'] ?? 'table';
+        $table = $wpdb->prefix . 'job_queue';
+
+        // Yleistilastot
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $total = $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $oldest_queued = $wpdb->get_var(
+            "SELECT created_at FROM {$table} WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
+        );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $avg_attempts = $wpdb->get_var(
+            "SELECT AVG(attempts) FROM {$table} WHERE status = 'completed'"
+        );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $queues = $wpdb->get_results(
+            "SELECT queue, COUNT(*) as total,
+                SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+            FROM {$table}
+            GROUP BY queue",
+            ARRAY_A
+        );
+
+        if ( $format === 'json' ) {
+            WP_CLI::log( wp_json_encode( [
+                'total_jobs' => (int) $total,
+                'oldest_queued' => $oldest_queued,
+                'avg_attempts' => round( (float) $avg_attempts, 2 ),
+                'queues' => $queues,
+            ], JSON_PRETTY_PRINT ) );
+            return;
+        }
+
+        WP_CLI::log( '' );
+        WP_CLI::log( WP_CLI::colorize( '%GWPC Cron v2 Status%n' ) );
+        WP_CLI::log( str_repeat( '─', 40 ) );
+        WP_CLI::log( "Jobeja yhteensä:       {$total}" );
+        WP_CLI::log( "Vanhin jonossa:        " . ( $oldest_queued ?: '-' ) );
+        WP_CLI::log( "Keskim. yrityksiä:     " . ( $avg_attempts ? round( $avg_attempts, 2 ) : '-' ) );
+        WP_CLI::log( '' );
+
+        if ( ! empty( $queues ) ) {
+            WP_CLI::log( WP_CLI::colorize( '%YJonot:%n' ) );
+            WP_CLI\Utils\format_items( 'table', $queues, [ 'queue', 'total', 'queued', 'running', 'completed', 'failed' ] );
+        }
+    }
+
+    /**
+     * Listaa ajastetut tehtävät
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Tulostusmuoto
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 schedules
+     *
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function schedules( $args, $assoc_args ) {
+        $format = $assoc_args['format'] ?? 'table';
+        $schedules = wp_cron_v2_scheduler()->get_schedules();
+
+        if ( empty( $schedules ) ) {
+            WP_CLI::log( 'Ei ajastettuja tehtäviä.' );
+            return;
+        }
+
+        $data = [];
+        foreach ( $schedules as $name => $schedule ) {
+            $parts = explode( '\\', $schedule['job_class'] );
+            $data[] = [
+                'name' => $name,
+                'job' => end( $parts ),
+                'interval' => $schedule['interval'],
+                'queue' => $schedule['queue'],
+                'enabled' => $schedule['enabled'] ? 'yes' : 'no',
+                'next_run' => $schedule['next_run'] ? gmdate( 'Y-m-d H:i:s', $schedule['next_run'] ) : '-',
+                'last_run' => $schedule['last_run'] ? gmdate( 'Y-m-d H:i:s', $schedule['last_run'] ) : '-',
+            ];
+        }
+
+        WP_CLI\Utils\format_items( $format, $data, [ 'name', 'job', 'interval', 'queue', 'enabled', 'next_run', 'last_run' ] );
+    }
+
+    /**
+     * Pysäytä ajastettu tehtävä
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Schedulen nimi
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 pause-schedule cleanup-logs
+     *
+     * @subcommand pause-schedule
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function pause_schedule( $args, $assoc_args ) {
+        $name = $args[0];
+
+        if ( wp_cron_v2_scheduler()->pause( $name ) ) {
+            WP_CLI::success( "Schedule '{$name}' pysäytetty." );
+        } else {
+            WP_CLI::error( "Schedulea '{$name}' ei löydy." );
+        }
+    }
+
+    /**
+     * Jatka pysäytettyä ajastettua tehtävää
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Schedulen nimi
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 resume-schedule cleanup-logs
+     *
+     * @subcommand resume-schedule
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function resume_schedule( $args, $assoc_args ) {
+        $name = $args[0];
+
+        if ( wp_cron_v2_scheduler()->resume( $name ) ) {
+            WP_CLI::success( "Schedule '{$name}' jatkuu." );
+        } else {
+            WP_CLI::error( "Schedulea '{$name}' ei löydy." );
+        }
+    }
+
+    /**
+     * Poista ajastettu tehtävä
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : Schedulen nimi
+     *
+     * ## EXAMPLES
+     *
+     *     wp cron-v2 remove-schedule cleanup-logs
+     *
+     * @subcommand remove-schedule
+     * @param array $args
+     * @param array $assoc_args
+     */
+    public function remove_schedule( $args, $assoc_args ) {
+        $name = $args[0];
+
+        if ( wp_cron_v2_scheduler()->unschedule( $name ) ) {
+            WP_CLI::success( "Schedule '{$name}' poistettu." );
+        } else {
+            WP_CLI::error( "Schedulea '{$name}' ei löydy." );
+        }
+    }
 }
 
 // Rekisteröi komennot

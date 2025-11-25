@@ -82,6 +82,15 @@ function wp_cron_v2_adapter() {
 }
 
 /**
+ * Pääsy scheduleriin
+ *
+ * @return WPCronV2\Queue\Scheduler
+ */
+function wp_cron_v2_scheduler() {
+    return WPCronV2\Queue\Scheduler::get_instance();
+}
+
+/**
  * Alusta plugin
  */
 add_action( 'plugins_loaded', function() {
@@ -90,6 +99,9 @@ add_action( 'plugins_loaded', function() {
 
     // Alusta Queue Manager
     wp_cron_v2();
+
+    // Alusta Scheduler
+    wp_cron_v2_scheduler();
 
     // Ota WP-Cron adapter käyttöön jos asetus on päällä
     $settings = get_option( 'wp_cron_v2_settings', [] );
